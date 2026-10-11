@@ -27,7 +27,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use agent_config::{ApprovalMode, Config, ConfigError};
-use agent_core::{now_ms, Agent, AgentError, AgentEvent, Outcome, Run, StoredSession};
+use agent_core::{now_ms, Agent, AgentError, AgentEvent, Budget, Outcome, Run, StoredSession};
 use agent_sandbox::{read_entries, AuditLog, Policy, AUDIT_FILE};
 use agent_tools::{Context, Registry};
 
@@ -42,7 +42,7 @@ use crate::terminal::{Printer, Terminal};
                   writes, and leaves a record you can undo from.\n\n\
                   It answers from a model you run locally; nothing about your code leaves the \
                   machine unless you configure a remote provider.\n\n\
-                  Build status: the loop, the nineteen default tools, the sandbox, the audit log \
+                  Build status: the loop, the twenty default tools, the sandbox, the audit log \
                   and the session record all work end to end. In a default build the providers that \
                   answer are the scripted mock and the echo inspector; a local .gguf file answers \
                   from its own weights in a binary built with --features llama-cpp, and a server \
@@ -617,6 +617,10 @@ async fn cmd_task(
 
     let policy = Policy::from_config(cwd, &config);
     let registry = Registry::with_defaults().enabled_by(&policy);
+    // The price of the tool list is what a person trimming it needs to see, so
+    // it is measured here rather than left to `smoll tools`.
+    let offered = registry.len();
+    let tool_tokens = registry.token_cost();
     let mut ctx = Context::from_config(cwd, &config);
     if config.agent.audit_log {
         ctx = ctx
@@ -659,6 +663,14 @@ async fn cmd_task(
     }
     if let Some(error) = &error {
         eprintln!("error: {error}");
+        if matches!(error, AgentError::BudgetExhausted(Budget::Tokens { .. })) {
+            eprintln!(
+                "hint: the {offered} tool definitions cost about {tool_tokens} tokens of every \
+                 step's prompt, and they are the part a person can trade away — `smoll tools` \
+                 prices each one, and `[tools.<name>] enabled = false` in smoll.toml is what \
+                 buys room for a smaller model."
+            );
+        }
     }
     if code == 0 {
         Ok(())

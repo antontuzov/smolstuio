@@ -1,8 +1,9 @@
-//! Running the project's own checks, as four separate tools.
+//! Running the project's own checks, as five separate tools.
 //!
-//! These are the four commands an agent wants at the end of a change: the tests,
-//! the linter, the build, and the question of whether the formatting is what the
-//! project's formatter would leave. Each takes its arguments from the manifests
+//! These are the five commands an agent wants at the end of a change: the tests,
+//! the compile check, the linter, the build, and the question of whether the
+//! formatting is what the project's formatter would leave. Each takes its
+//! arguments from the manifests
 //! on disk — [`agent_repo::Project`] reads them — and **not** from the model, so
 //! `test_run` cannot be talked into `rm -rf target` and a run cannot check itself
 //! with a command nobody declared. All four therefore take no arguments at all,
@@ -69,6 +70,20 @@ impl ProjectCommand {
                           report its exit code and output. Takes no arguments: the command comes \
                           from the project, never from the caller. A failing test is an answer, \
                           not a broken tool.",
+            timeout: Duration::from_secs(COMMAND_TIMEOUT_SECONDS),
+            check_only: false,
+        }
+    }
+
+    pub fn check_run() -> Self {
+        Self {
+            name: "check_run",
+            purpose: Purpose::Check,
+            phrase: "check",
+            description: "Compile and type-check this project with the check command its own \
+                          manifests declare, without running its tests. Takes no arguments. \
+                          Quicker than `build_run` or `test_run`, and it is the one to ask after \
+                          an edit that might not build.",
             timeout: Duration::from_secs(COMMAND_TIMEOUT_SECONDS),
             check_only: false,
         }
@@ -316,6 +331,7 @@ mod tests {
         std::fs::write(dir.path().join("README.md"), "notes\n").expect("writable");
         for tool in [
             ProjectCommand::test_run(),
+            ProjectCommand::check_run(),
             ProjectCommand::lint_run(),
             ProjectCommand::format_run(),
             ProjectCommand::build_run(),
@@ -339,6 +355,11 @@ mod tests {
         assert_eq!(
             argv_of(ProjectCommand::lint_run(), dir.path()),
             vec!["cargo", "clippy", "--all-targets", "--", "-D", "warnings"]
+        );
+        assert_eq!(
+            argv_of(ProjectCommand::check_run(), dir.path()),
+            vec!["cargo", "check"],
+            "the compile check, not the suite"
         );
         assert_eq!(
             argv_of(ProjectCommand::build_run(), dir.path()),
@@ -474,10 +495,40 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_check_compiles_the_project_and_reports_what_does_not_build() {
+        if which("cargo").is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().expect("a temp repo");
+        cargo_project(dir.path());
+        let call = ToolCall::new("check_run", json!({}));
+        let clean = ProjectCommand::check_run()
+            .run(&call, &context(dir.path()))
+            .await;
+        assert!(clean.is_success(), "{}", clean.summary());
+
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "pub fn oops() {\n    does_not_exist()\n}\n",
+        )
+        .expect("writable");
+        let result = ProjectCommand::check_run()
+            .run(&call, &context(dir.path()))
+            .await;
+        assert!(!result.is_success(), "{}", result.summary());
+        assert!(
+            result.output.text.contains("does_not_exist"),
+            "the compiler's own words rather than a generic failure: {}",
+            result.output.text
+        );
+    }
+
     #[test]
-    fn the_four_are_commands_and_none_of_them_is_offered_an_argument() {
+    fn the_project_commands_are_all_execute_and_none_of_them_is_offered_an_argument() {
         for tool in [
             ProjectCommand::test_run(),
+            ProjectCommand::check_run(),
             ProjectCommand::lint_run(),
             ProjectCommand::format_run(),
             ProjectCommand::build_run(),

@@ -127,10 +127,17 @@ impl CompletionRequest {
     /// Rough cost of the prompt, using the same heuristic everywhere in this
     /// repository so the number in the UI and the number in the loop agree.
     pub fn prompt_tokens(&self) -> u32 {
-        self.messages
+        let conversation: u32 = self
+            .messages
             .iter()
             .map(|message| approx_token_count(&message.content))
-            .sum()
+            .sum();
+        // A tool block is part of the prompt wherever it goes: written into the
+        // system message by a model that has to be told, or carried below as its
+        // own field by one that can be shown it. Counting only the messages would
+        // let the largest fixed cost of a small-model run slip past the check.
+        let tools: u32 = self.tools.iter().map(|tool| tool.token_cost() as u32).sum();
+        conversation + tools
     }
 
     /// Whether the prompt plus the reply budget fits the window, checked before
@@ -292,6 +299,36 @@ mod tests {
         );
         assert!(small.token_cost() < large.token_cost());
         assert!(small.token_cost() > 0);
+    }
+
+    #[test]
+    fn a_tool_block_is_paid_for_wherever_it_travels() {
+        let tools: Vec<ToolSchema> = (0..20)
+            .map(|index| {
+                ToolSchema::new(
+                    format!("tool_{index}"),
+                    "Describe what this tool does and when to reach for it.",
+                    json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+                )
+            })
+            .collect();
+        let priced: usize = tools.iter().map(ToolSchema::token_cost).sum();
+        let alone = request("Find where the config is read.");
+        let mut with_tools = alone.clone();
+        with_tools.tools = tools;
+        assert_eq!(
+            with_tools.prompt_tokens() as usize,
+            alone.prompt_tokens() as usize + priced,
+            "a schema the engine renders for itself is part of the prompt like text is"
+        );
+        // Half the tool block's own price is a window the messages fit and the
+        // tools do not, so the check below can only pass if they were counted.
+        let tight = Capabilities::basic().with_tool_calling().window(priced / 2);
+        assert!(alone.fits(&tight, 0), "the prompt alone is small");
+        assert!(
+            !with_tools.fits(&tight, 0),
+            "and twenty tools fill a small window"
+        );
     }
 
     #[test]

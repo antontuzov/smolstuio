@@ -94,13 +94,13 @@ warning naming both numbers, when it asks for more than the host has.
   `smoll tools` lists what a run can be given and what offering it costs in
   prompt tokens. Every command takes `-C/--cwd` and `--json`, and the exit code
   distinguishes a task that did not work (1) from one it should not have been
-  asked to do (2). The nineteen default tools are `read_file`, `list_dir`,
+  asked to do (2). The twenty default tools are `read_file`, `list_dir`,
   `search_files`, `search_text`, `search_symbols`, `git_status`, `git_diff`,
   `git_log` and `git_show` for seeing; `write_file`, `patch_file` and
   `delete_file` for changing, each one journaled so `smoll rollback` puts it
   back; `git_add` and `git_commit` for recording a change — both are writes, so
   they ask, and a rollback does not undo them; `run_command` for a program you
-  name; and `test_run`, `lint_run`, `format_run` and `build_run` for the commands
+  name; and `test_run`, `check_run`, `lint_run`, `format_run` and `build_run` for the commands
   the repository declares about itself, which take no arguments at all — the
   argv comes from `Cargo.toml`, `package.json` or `Makefile`, never from the
   model, and `format_run` only asks the formatter to report. Nothing in the git
@@ -381,7 +381,7 @@ crates/
   smollm-cli        the `smollm` binary
   agent-config      the TOML the agent runs on, plus env and CLI overrides
   agent-sandbox     policy, approval modes, audit log and secret redaction
-  agent-tools       the nineteen tools, their registry, the gate and rollback journal
+  agent-tools       the twenty tools, their registry, the gate and rollback journal
   agent-repo        ignore-aware index, repo map, search ranking and unified diffs
   agent-providers   Provider trait, tool-call parsing, Mock, Echo, GGUF and OpenAI-wire providers
   agent-core        the loop: context, plan, tools, repair, approval, validation

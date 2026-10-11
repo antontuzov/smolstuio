@@ -49,7 +49,7 @@ impl Registry {
         Self::default()
     }
 
-    /// The nineteen tools a first run can use, all of them enabled.
+    /// The twenty tools a first run can use, all of them enabled.
     pub fn with_defaults() -> Self {
         use crate::filesystem::{ListDir, ReadFile};
         use crate::git::{GitAdd, GitCommit, GitDiff, GitLog, GitShow, GitStatus};
@@ -71,6 +71,7 @@ impl Registry {
             Box::new(GitShow),
             Box::new(RunCommand),
             Box::new(ProjectCommand::test_run()),
+            Box::new(ProjectCommand::check_run()),
             Box::new(ProjectCommand::lint_run()),
             Box::new(ProjectCommand::format_run()),
             Box::new(ProjectCommand::build_run()),
@@ -337,12 +338,13 @@ mod tests {
     }
 
     #[test]
-    fn the_default_set_is_the_nineteen_tools_a_first_run_can_use() {
+    fn the_default_set_is_the_twenty_tools_a_first_run_can_use() {
         let registry = Registry::with_defaults();
         assert_eq!(
             registry.names(),
             vec![
                 "build_run",
+                "check_run",
                 "delete_file",
                 "format_run",
                 "git_add",
@@ -366,10 +368,10 @@ mod tests {
         let cost = registry.token_cost();
         assert!(cost > 0, "offering a tool costs prompt tokens");
         assert!(
-            cost < 2_900,
+            cost < 3_000,
             "the whole list is {cost} tokens, and a 4096-token model has to keep the \
              repository's share: the rules and the plan want about 700 more, the answer wants \
-             256, and what is left over is the map — which is why the nineteen tools here take \
+             256, and what is left over is the map — which is why the twenty tools here take \
              as few arguments and as few words as they can"
         );
         let classes: Vec<&str> = {

@@ -142,7 +142,7 @@ impl Default for Limits {
             max_steps: 20,
             // The ceiling a run may plan for, not the one it gets: `window` takes
             // the smaller of this and what the model actually advertises. It is
-            // set above the nineteen default tools' cost so a 16k model spends its
+            // set above the twenty default tools' cost so a 16k model spends its
             // spare on the repository rather than on an empty prompt.
             max_context_tokens: 16_000,
             timeout: Duration::from_secs(120),
@@ -445,7 +445,7 @@ impl Agent {
                 );
                 if !request.fits(&capabilities, reply) {
                     return Err(AgentError::BudgetExhausted(Budget::Tokens {
-                        used: request.prompt_tokens() as usize,
+                        used: request.prompt_tokens() as usize + reply,
                         max: capabilities.context_tokens,
                     }));
                 }

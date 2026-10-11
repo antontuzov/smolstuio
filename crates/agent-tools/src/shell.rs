@@ -113,7 +113,7 @@ impl Tool for RunCommand {
 
 /// Run one program to its end and answer with what it said.
 ///
-/// Shared with [`crate::validate`]'s four project commands so that the rules a
+/// Shared with [`crate::validate`]'s project commands so that the rules a
 /// program runs under — no shell, a directory inside the workspace, a limit that
 /// kills it, stdout and stderr both kept, and a non-zero exit reported as the
 /// *program's* answer rather than a broken tool — have one implementation.

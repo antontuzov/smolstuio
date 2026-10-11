@@ -9,11 +9,12 @@
 //!
 //! This crate owns the implementations and nothing about the agent's reasoning:
 //! a tool never decides whether it should have been called, and cannot widen
-//! what it is allowed to touch. Nine of the nineteen tools read. Five run a
-//! program: `run_command` runs whatever arguments the model wrote, and the four
-//! project commands — `test_run`, `lint_run`, `format_run` and `build_run` — run
-//! the argv the repository's own manifests declare and take no arguments at all,
-//! so a check cannot be steered into a deletion. `format_run` narrows that even
+//! what it is allowed to touch. Nine of the twenty tools read. Six run a
+//! program: `run_command` runs whatever arguments the model wrote, and the five
+//! project commands — `test_run`, `check_run`, `lint_run`, `format_run` and
+//! `build_run` — run the argv the repository's own manifests declare and take no
+//! arguments at all, so a check cannot be steered into a deletion.
+//! `format_run` narrows that even
 //! further and only reports. The three that change the tree — `write_file`,
 //! `patch_file` and `delete_file` — delegate the diff and the rollback to
 //! `agent-repo`, and record what they replaced in [`Context::rollback`] so a run

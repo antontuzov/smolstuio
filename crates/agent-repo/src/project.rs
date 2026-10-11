@@ -58,12 +58,18 @@ impl Ecosystem {
 
 /// Why the agent would run a command.
 ///
-/// The loop asks by purpose rather than by name, so `smoll test` and an agent
-/// that wants to check its own work reach for the same argv.
+/// The loop and the tools ask by purpose rather than by name, so an agent that
+/// wants to know whether its change compiles and a person who knows the command
+/// for that reach for the same argv.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Purpose {
     Validate,
+    /// Does it compile and type-check, without running the suite? Only a
+    /// project that says how is offered one: cargo has `cargo check`, a Python
+    /// project with `[tool.mypy]` has `mypy`, and a script called `check` is
+    /// already the suite.
+    Check,
     Build,
     Lint,
     Format,
@@ -73,6 +79,7 @@ impl Purpose {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Validate => "validate",
+            Self::Check => "check",
             Self::Build => "build",
             Self::Lint => "lint",
             Self::Format => "format",
@@ -412,6 +419,9 @@ fn cargo(index: &Index, project: &mut Project) -> bool {
     project
         .suggestions
         .push(every("test", &[], Purpose::Validate));
+    project
+        .suggestions
+        .push(every("check", &[], Purpose::Check));
     project.suggestions.push(every(
         "clippy",
         &["--all-targets", "--", "-D", "warnings"],
@@ -619,6 +629,15 @@ fn python(index: &Index, project: &mut Project) -> bool {
             ),
         ));
     }
+    if configured("mypy") {
+        project.suggestions.push(suggestion(
+            Purpose::Check,
+            Ecosystem::Python,
+            directory.clone(),
+            words(&["mypy", "."]),
+            format!("{} configures mypy", primary.path),
+        ));
+    }
     if configured("ruff") {
         project.suggestions.push(suggestion(
             Purpose::Lint,
@@ -810,6 +829,11 @@ mod tests {
                 "-D",
                 "warnings"
             ]
+        );
+        assert_eq!(
+            project.for_purpose(Purpose::Check).expect("check").argv,
+            vec!["cargo", "check", "--workspace"],
+            "a check is the same shape as a build and quicker than either"
         );
         assert_eq!(
             project.for_purpose(Purpose::Format).expect("fmt").argv,
@@ -1025,6 +1049,42 @@ mod tests {
         assert_eq!(
             project.validate().expect("a command").argv,
             vec!["python", "-m", "pytest"]
+        );
+    }
+
+    #[test]
+    fn a_project_only_has_a_check_command_when_it_declares_one() {
+        // A check answers "does it compile", which is a different question from
+        // "does the suite pass", so it is only offered where the manifests say
+        // how: cargo has the subcommand, a Python project has to configure mypy,
+        // and a script named `check` is the suite rather than a type check.
+        let dir = tempfile::tempdir().expect("a temp repo");
+        write(
+            dir.path(),
+            "pyproject.toml",
+            "[project]\nname = \"app\"\n\n[tool.mypy]\nstrict = true\n",
+        );
+        let project = project_at(dir.path());
+        assert_eq!(
+            project.for_purpose(Purpose::Check).expect("mypy").argv,
+            vec!["mypy", "."]
+        );
+
+        let dir = tempfile::tempdir().expect("a temp repo");
+        write(
+            dir.path(),
+            "package.json",
+            r#"{"name":"web","scripts":{"check":"node ./run-tests.js"}}"#,
+        );
+        let project = project_at(dir.path());
+        assert!(
+            project.for_purpose(Purpose::Check).is_none(),
+            "{:?}",
+            project.suggestions
+        );
+        assert_eq!(
+            project.validate().expect("the suite").argv,
+            vec!["npm", "run", "check"]
         );
     }
 

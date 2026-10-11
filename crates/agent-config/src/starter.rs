@@ -95,8 +95,8 @@ denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 [tools.search_text]
 enabled = true
 
-# The four tools that check the project's own work — `test_run`, `lint_run`,
-# `format_run` and `build_run` — read their command from this repository's
+# The five tools that check the project's own work — `test_run`, `check_run`,
+# `lint_run`, `format_run` and `build_run` — read their command from this repository's
 # manifests rather than taking arguments, so there is nothing to allowlist here.
 # What they do take is a shorter timeout, a denylist over the command the project
 # declares, and `enabled = false` to keep one out of the prompt entirely.

@@ -281,6 +281,35 @@ fn task_json_answers_with_one_document_and_keeps_the_feed_on_stderr() {
 }
 
 #[test]
+fn a_prompt_that_cannot_fit_a_small_window_says_what_buys_the_room_back() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    smoll(dir.path(), &["init"]);
+    // A 2B-class window: after the loop has dropped every file and every line of
+    // the repository map, the tool definitions themselves still do not fit.
+    let file = dir.path().join("smoll.toml");
+    let config = std::fs::read_to_string(&file).expect("`init` wrote a file");
+    std::fs::write(
+        &file,
+        config.replace(
+            "[providers.mock]",
+            "[providers.mock]\ncontext_length = 1024",
+        ),
+    )
+    .expect("writable");
+
+    let output = smoll(dir.path(), &["task", "--yes", "summarise this repository"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("context tokens needed"), "{stderr}");
+    assert!(
+        stderr.contains("hint:")
+            && stderr.contains("smoll tools")
+            && stderr.contains("enabled = false"),
+        "a number is not a way out, so the failure names one: {stderr}"
+    );
+}
+
+#[test]
 fn a_dry_run_asks_nobody_and_still_leaves_its_record() {
     let dir = tempfile::tempdir().expect("temp dir");
     smoll(dir.path(), &["init"]);
@@ -326,6 +355,7 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
         "list_dir",
         "search_files",
         "test_run",
+        "check_run",
         "lint_run",
         "format_run",
         "build_run",
@@ -345,7 +375,7 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
     let value: serde_json::Value =
         serde_json::from_slice(&machine.stdout).expect("valid json for tools --json");
     let rows = value["tools"].as_array().expect("a list");
-    assert_eq!(rows.len(), 19, "{rows:?}");
+    assert_eq!(rows.len(), 20, "{rows:?}");
     assert!(
         rows.iter()
             .all(|row| row["permission"].is_string() && row["enabled"].is_boolean()),
@@ -416,7 +446,7 @@ fn a_switched_off_tool_is_listed_and_marked() {
         "a tool that is off is still shown, so a person can switch it on:\n{stdout}"
     );
     assert!(
-        stdout.contains("18 of 19 tool(s) offered"),
+        stdout.contains("19 of 20 tool(s) offered"),
         "and the count says so: {stdout}"
     );
 }

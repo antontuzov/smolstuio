@@ -56,7 +56,17 @@ the repository — about a quarter to the repo map, the rest to the file bodies 
 first turn is handed — and the map keeps a floor even when the window leaves
 nothing to spare, because a model with no table of contents assumes the
 repository is the three files it was shown. `smoll tools` prints what offering
-the nineteen default tools costs on every step of a run.
+the twenty default tools costs on every step of a run.
+
+That cost is counted whether a model is shown the tools as a native block or has
+them written into its instructions, so the number a run reports is the number the
+window has to hold, answer room included. With all twenty on, a first step wants
+about 3550 tokens of a model that is handed the block and about 4300 of one that
+has to be told in prose — before it has seen a single file, which is more than a
+4096-token model has. A run that still does not fit after dropping every file and
+every line of the map stops with `context tokens needed`, and the hint under it
+names the part `smoll tools` can give back. On this machine the same repository
+answered at 3072 tokens with eight tools switched off and 1807 offered.
 
 ### Approval modes
 
@@ -124,8 +134,8 @@ denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 denylist is checked first and wins. A non-empty `allowlist` with no `sandbox`
 key is refused — a list nothing enforces is decoration, not policy.
 
-The four tools that check the project's own work (`test_run`, `lint_run`,
-`format_run`, `build_run`) read their command out of the repository's manifests
+The five tools that check the project's own work (`test_run`, `check_run`,
+`lint_run`, `format_run`, `build_run`) read their command out of the repository's manifests
 instead of taking arguments from the model, so there is no command line for a
 person to approve in advance: what they can be given is a `denylist` pattern over
 the command the project declares, a lower `timeout_seconds`, and `enabled =

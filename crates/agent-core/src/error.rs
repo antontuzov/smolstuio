@@ -14,7 +14,10 @@ use thiserror::Error;
 pub enum Budget {
     #[error("{used} of {max} tool calls used")]
     Steps { used: usize, max: usize },
-    #[error("{used} of {max} context tokens used")]
+    /// `used` is the whole thing the window was asked to hold — the prompt and
+    /// the room reserved for the answer — so it is the number that lost the
+    /// comparison to `max`, not a count of what was spent.
+    #[error("{used} of {max} context tokens needed")]
     Tokens { used: usize, max: usize },
     #[error("{elapsed} of {max} seconds elapsed")]
     Seconds { elapsed: u64, max: u64 },
