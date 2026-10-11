@@ -714,8 +714,12 @@ fn default_max_steps() -> usize {
     20
 }
 
+/// The prompt budget a run plans for. This is a ceiling, not a promise: the loop
+/// takes the smaller of this and the window the model advertises, so a 4k GGUF
+/// still gets a 4k prompt while a server started at 32k is not starved by a
+/// default chosen for one.
 fn default_max_context_tokens() -> usize {
-    8_000
+    16_000
 }
 
 fn default_timeout_seconds() -> u64 {

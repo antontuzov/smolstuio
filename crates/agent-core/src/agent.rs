@@ -89,6 +89,8 @@ use crate::types::{
 const MAX_CONTEXT_FILES: usize = 5;
 /// Tokens held back for the plan, the task and their restatement.
 const PROMPT_RESERVE: usize = 400;
+/// The least the repository's table of contents gets, however tight the window.
+const MIN_REPO_MAP_TOKENS: usize = 192;
 /// Turns of conversation kept when an over-long prompt has to be cut.
 const KEEP_TAIL: usize = 4;
 /// The share of the window at which the run says it is running out.
@@ -138,7 +140,11 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_steps: 20,
-            max_context_tokens: 8_000,
+            // The ceiling a run may plan for, not the one it gets: `window` takes
+            // the smaller of this and what the model actually advertises. It is
+            // set above the fifteen default tools' cost so a 16k model spends its
+            // spare on the repository rather than on an empty prompt.
+            max_context_tokens: 16_000,
             timeout: Duration::from_secs(120),
             retries: 2,
             max_tokens: Some(DEFAULT_REPLY_TOKENS),
@@ -513,15 +519,20 @@ impl Agent {
         let about = format!("{} · {}", project.describe(), index.describe());
         let system = prompt::system(schemas, tool_calling, &about);
 
-        // Every step pays for the rules and the tool list, so the repository gets
-        // what is left of the window after them.
+        // Every step pays for the rules and for the tool list, once, in whichever
+        // form this provider carries it. The repository gets what is left.
         let mut fixed = approx_token_count(&system) as usize;
         if tool_calling {
             fixed += schemas.iter().map(ToolSchema::token_cost).sum::<usize>();
         }
         let available =
             window.saturating_sub(fixed + self.limits.reply_tokens() as usize + PROMPT_RESERVE);
-        let repo_map = RepoMap::build(&index, &project, Some(task), (available / 4).max(1));
+        // The map is the part that is not recoverable by asking: a model that has
+        // seen no table of contents assumes the repository is the files it was
+        // handed, while one that has lost a body can call read_file for it. So
+        // the map keeps a floor even when the window leaves nothing to spare.
+        let map_budget = (available / 4).max(MIN_REPO_MAP_TOKENS);
+        let repo_map = RepoMap::build(&index, &project, Some(task), map_budget);
         let mut bundle = ContextBundle::new(task);
         bundle.repo_map = repo_map.text;
         for candidate in map::context(

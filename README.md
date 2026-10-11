@@ -94,11 +94,14 @@ warning naming both numbers, when it asks for more than the host has.
   `smoll tools` lists what a run can be given and what offering it costs in
   prompt tokens. Every command takes `-C/--cwd` and `--json`, and the exit code
   distinguishes a task that did not work (1) from one it should not have been
-  asked to do (2). The eleven default tools are `read_file`, `list_dir`,
-  `search_files`, `search_text`, `search_symbols`, `git_status`, `git_diff` for
-  seeing; `write_file`, `patch_file` and `delete_file` for changing, each one
-  journaled so `smoll rollback` puts it back; and `run_command` for running the
-  project's own commands — see
+  asked to do (2). The fifteen default tools are `read_file`, `list_dir`,
+  `search_files`, `search_text`, `search_symbols`, `git_status`, `git_diff`,
+  `git_log` and `git_show` for seeing; `write_file`, `patch_file` and
+  `delete_file` for changing, each one journaled so `smoll rollback` puts it
+  back; `git_add` and `git_commit` for recording a change — both are writes, so
+  they ask, and a rollback does not undo them; and `run_command` for running the
+  project's own commands. Nothing in the git set reaches a remote: there is no
+  push, fetch or branch here. See
   [crates/agent-core/tests/loop_runs.rs](crates/agent-core/tests/loop_runs.rs)
   for the behaviours that are actually proven. Two providers answer in a default
   build: the scripted mock and the echo inspector. A third, `type = "gguf"`,
@@ -375,7 +378,7 @@ crates/
   smollm-cli        the `smollm` binary
   agent-config      the TOML the agent runs on, plus env and CLI overrides
   agent-sandbox     policy, approval modes, audit log and secret redaction
-  agent-tools       the eleven tools, their registry, the gate and rollback journal
+  agent-tools       the fifteen tools, their registry, the gate and rollback journal
   agent-repo        ignore-aware index, repo map, search ranking and unified diffs
   agent-providers   Provider trait, tool-call parsing, Mock, Echo, GGUF and OpenAI-wire providers
   agent-core        the loop: context, plan, tools, repair, approval, validation

@@ -25,9 +25,9 @@ impl Tool for ReadFile {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "read_file",
-            "Read a text file. Returns at most `lines` lines from `from_line`, each prefixed \
-             with its number, so a later edit can point at a line that exists. A file that is \
-             not text is refused rather than guessed at.",
+            "Read a text file: at most `lines` lines from `from_line`, each prefixed with its \
+             number, so a later edit can point at a line that exists. A file that is not text is \
+             refused rather than guessed at.",
             schema::object(
                 json!({
                     "path": schema::path("the file to read"),
@@ -139,13 +139,12 @@ impl Tool for ListDir {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "list_dir",
-            "List the files and directories under `path`, up to `depth` levels down, skipping \
-             what .gitignore skips. Directories end in `/`. It answers \"what is here\" without \
-             reading any of it.",
+            "List what is under `path`, up to `depth` levels down, skipping what .gitignore \
+             skips. Directories end in `/`. Answers \"what is here\" without reading any of it.",
             schema::object(
                 json!({
                     "path": schema::path("the directory to list; default the repository root"),
-                    "depth": schema::integer("how many levels to descend; default 1", 1),
+                    "depth": schema::integer("levels to descend; default 1", 1),
                 }),
                 &[],
             ),

@@ -36,9 +36,9 @@ impl Tool for WriteFile {
         ToolDefinition::new(
             "write_file",
             "Write `content` as the whole of the file at `path`, creating it and its parent \
-             directories when they are missing. It replaces what is there, so use it for a new \
-             file or one you have read in full; `patch_file` is cheaper and safer for a small \
-             change to a file you have only partly seen. The answer is the diff of what changed.",
+             directories. It replaces what is there, so use it for a new file or one you have \
+             read in full; `patch_file` is cheaper and safer for a small change. The answer is \
+             the diff of what changed.",
             schema::object(
                 json!({
                     "path": schema::path("the file to write"),
@@ -136,11 +136,11 @@ impl Tool for PatchFile {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "patch_file",
-            "Apply a unified diff, the format `read_file` and `git_diff` show. Give three lines \
-             of unchanged context around every change and copy them exactly; the patch is \
-             applied where its context is, not where its line numbers say, and is refused if the \
-             context is not there. `path` is only needed when the diff has no --- and +++ lines \
-             of its own. Nothing is written unless the whole patch applies.",
+            "Apply a unified diff, the format `read_file` and `git_diff` show. Three lines of \
+             unchanged context around every change, copied exactly: the patch is applied where \
+             its context is, not where its line numbers say, and is refused when the context is \
+             not there. `path` is needed only when the diff names no file. Nothing is written \
+             unless the whole patch applies.",
             schema::object(
                 json!({
                     "patch": schema::string("the unified diff, --- and +++ lines included"),
@@ -239,11 +239,10 @@ impl Tool for DeleteFile {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "delete_file",
-            "Remove one file from the repository. It always asks a person first, in every \
-             approval mode except the ones that write nothing at all. What it removes has to be \
-             a text file the run can hold onto, because `smoll rollback` puts it back from what \
-             was recorded here; a directory, a binary and a file over the read limit are refused \
-             rather than removed past the point of being recoverable.",
+            "Remove one file from the repository, and only after a person has said yes. What it \
+             removes has to be a text file within the read limit, because `smoll rollback` puts \
+             it back from what this recorded; a directory, a binary and anything too big to hold \
+             are refused rather than gone past recovery.",
             schema::object(
                 json!({
                     "path": schema::path("the file to remove"),

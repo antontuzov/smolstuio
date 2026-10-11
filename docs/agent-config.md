@@ -32,7 +32,7 @@ file unless you pass `--force`.
 [agent]
 approval_mode = "approve-edits"
 max_steps = 20
-max_context_tokens = 8000
+max_context_tokens = 16000
 timeout_seconds = 120
 audit_log = true
 retries = 2
@@ -43,10 +43,20 @@ retries = 2
 | `approval_mode` | `approve-edits` | see below | how much may happen without asking |
 | `sandbox` | `strict` | `off`/`warn`/`strict` | the boundary for a tool whose own section says nothing |
 | `max_steps` | `20` | 1–200 | tool calls allowed in one task |
-| `max_context_tokens` | `8000` | 256–1000000 | budget for the prompt |
+| `max_context_tokens` | `16000` | 256–1000000 | the most prompt a run may plan for |
 | `timeout_seconds` | `120` | 1–3600 | wall-clock limit for one task |
 | `audit_log` | `true` | | every action is recorded |
 | `retries` | `2` | | attempts after a provider error |
+
+`max_context_tokens` is a ceiling, not a promise: a run takes the smaller of this
+and the window the provider actually advertises (`[providers.<name>]
+context_length`, or what a server reports), so a 4k GGUF still gets a 4k prompt
+whatever is written here. What is left after the rules and the tool list goes to
+the repository — about a quarter to the repo map, the rest to the file bodies the
+first turn is handed — and the map keeps a floor even when the window leaves
+nothing to spare, because a model with no table of contents assumes the
+repository is the three files it was shown. `smoll tools` prints what offering
+the fifteen default tools costs on every step of a run.
 
 ### Approval modes
 

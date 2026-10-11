@@ -9,11 +9,15 @@
 //!
 //! This crate owns the implementations and nothing about the agent's reasoning:
 //! a tool never decides whether it should have been called, and cannot widen
-//! what it is allowed to touch. Seven of the eleven tools read, and one runs a
+//! what it is allowed to touch. Nine of the fifteen tools read, and one runs a
 //! program. The three that change the tree — `write_file`, `patch_file` and
 //! `delete_file` — delegate the diff and the rollback to `agent-repo`, and record
 //! what they replaced in [`Context::rollback`] so a run that went wrong can be
-//! undone. `delete_file` refuses anything that journal could not put back.
+//! undone. `delete_file` refuses anything that journal could not put back. The
+//! two that change what git has recorded — `git_add` and `git_commit` — are
+//! writes too, so an approval mode that asks before writing asks before them, and
+//! neither is undone by a rollback: they are git's to undo, and this crate offers
+//! no git command that discards work.
 //!
 //! ```
 //! use agent_tools::{Context, Registry, ToolCall};

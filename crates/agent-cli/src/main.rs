@@ -42,8 +42,8 @@ use crate::terminal::{Printer, Terminal};
                   writes, and leaves a record you can undo from.\n\n\
                   It answers from a model you run locally; nothing about your code leaves the \
                   machine unless you configure a remote provider.\n\n\
-                  Build status: the loop, the eleven default tools, the sandbox, the audit log and \
-                  the session record all work end to end. In a default build the providers that \
+                  Build status: the loop, the fifteen default tools, the sandbox, the audit log \
+                  and the session record all work end to end. In a default build the providers that \
                   answer are the scripted mock and the echo inspector; a local .gguf file answers \
                   from its own weights in a binary built with --features llama-cpp, and a server \
                   on the OpenAI wire — Ollama, LM Studio, vLLM, TGI, llama-server, smoll serve — \

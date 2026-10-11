@@ -49,10 +49,10 @@ impl Registry {
         Self::default()
     }
 
-    /// The eleven tools a first run can use, all of them enabled.
+    /// The fifteen tools a first run can use, all of them enabled.
     pub fn with_defaults() -> Self {
         use crate::filesystem::{ListDir, ReadFile};
-        use crate::git::{GitDiff, GitStatus};
+        use crate::git::{GitAdd, GitCommit, GitDiff, GitLog, GitShow, GitStatus};
         use crate::search::{SearchFiles, SearchSymbols, SearchText};
         use crate::shell::RunCommand;
         use crate::write::{DeleteFile, PatchFile, WriteFile};
@@ -66,10 +66,14 @@ impl Registry {
             Box::new(SearchSymbols),
             Box::new(GitStatus),
             Box::new(GitDiff),
+            Box::new(GitLog),
+            Box::new(GitShow),
             Box::new(RunCommand),
             Box::new(WriteFile),
             Box::new(PatchFile),
             Box::new(DeleteFile),
+            Box::new(GitAdd),
+            Box::new(GitCommit),
         ] {
             registry.register(tool);
         }
@@ -328,13 +332,17 @@ mod tests {
     }
 
     #[test]
-    fn the_default_set_is_the_eleven_tools_a_first_run_can_use() {
+    fn the_default_set_is_the_fifteen_tools_a_first_run_can_use() {
         let registry = Registry::with_defaults();
         assert_eq!(
             registry.names(),
             vec![
                 "delete_file",
+                "git_add",
+                "git_commit",
                 "git_diff",
+                "git_log",
+                "git_show",
                 "git_status",
                 "list_dir",
                 "patch_file",
@@ -349,8 +357,25 @@ mod tests {
         let cost = registry.token_cost();
         assert!(cost > 0, "offering a tool costs prompt tokens");
         assert!(
-            cost < 4_000,
-            "the whole list is {cost} tokens of the window"
+            cost < 2_600,
+            "the whole list is {cost} tokens, and a 4096-token model has to keep the \
+             repository's share: the rules and the plan want about 700 more, the answer wants \
+             256, and what is left over is the map"
+        );
+        let classes: Vec<&str> = {
+            let mut seen: Vec<&str> = registry
+                .definitions()
+                .iter()
+                .map(|definition| definition.permission.as_str())
+                .collect();
+            seen.sort_unstable();
+            seen.dedup();
+            seen
+        };
+        assert_eq!(
+            classes,
+            vec!["destructive", "execute", "read-only", "write"],
+            "the four classes a run can be asked about, and no network one"
         );
     }
 

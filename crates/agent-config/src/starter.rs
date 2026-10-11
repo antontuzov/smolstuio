@@ -43,7 +43,9 @@ const STARTER: &str = r#"# smoll configuration
 # autonomous-safe write and run without asking, but only what the sandbox allows
 approval_mode = "approve-edits"
 max_steps = 20
-max_context_tokens = 8000
+# The most prompt a run may plan for. The model's own window still caps it: a
+# 4k GGUF gets a 4k prompt whatever is written here.
+max_context_tokens = 16000
 timeout_seconds = 120
 audit_log = true
 

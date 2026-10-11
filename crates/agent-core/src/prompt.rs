@@ -36,8 +36,15 @@ block and nothing else after it:\n```json\n{\"tool\": \"read_file\", \"arguments
 \"src/lib.rs\"}}\n```\nThe `tool` value must be one of the names above. `arguments` may be \
 omitted when the tool needs none.";
 
-/// The tools as prose, for a provider that cannot carry a tool list.
-fn tool_list(tools: &[ToolSchema]) -> String {
+/// The tools as a list the model can choose from.
+///
+/// `described` is whether the model gets the prose at all. A provider that
+/// carries a tool array sends each description to the model itself, so spelling
+/// it out here too buys the same words twice against a window that cannot afford
+/// it: every step of the run pays, and the repository is what goes unpaid. A
+/// provider that cannot take the array gets the full sentences, because this is
+/// the only place it learns what a tool does.
+fn tool_list(tools: &[ToolSchema], described: bool) -> String {
     if tools.is_empty() {
         return "You have no tools on this run. Answer from the context below and say what you \
                 would need in order to do more."
@@ -54,10 +61,16 @@ fn tool_list(tools: &[ToolSchema]) -> String {
                 .join(", "),
             _ => "no arguments".to_owned(),
         };
-        lines.push(format!(
-            "- {}: {} Required: {}.",
-            tool.name, tool.description, needs
-        ));
+        if described {
+            lines.push(format!(
+                "- {}: {} Required: {}.",
+                tool.name, tool.description, needs
+            ));
+        } else {
+            // The names still belong here: an array the chat template drops
+            // silently leaves a model asking for a tool it was never told.
+            lines.push(format!("- {name} (Required: {needs})", name = tool.name));
+        }
     }
     lines.join("\n")
 }
@@ -78,7 +91,7 @@ pub fn system(tools: &[ToolSchema], tool_calling: bool, about: &str) -> String {
         prompt.push_str(about.trim());
     }
     prompt.push_str("\n\n");
-    prompt.push_str(&tool_list(tools));
+    prompt.push_str(&tool_list(tools, !tool_calling));
     prompt
 }
 
@@ -204,18 +217,25 @@ mod tests {
         bundle
     }
 
+    /// A model with native calls already receives each description in the tool
+    /// array, so the prose list stops at the names: what is left of the window
+    /// belongs to the repository.
     #[test]
-    fn the_system_prompt_names_the_arguments_a_tool_needs() {
+    fn a_tool_that_carries_its_own_description_is_not_described_twice() {
         let prompt = system(
             &[tool("read_file", &["path"]), tool("list_dir", &[])],
             true,
             "a Rust workspace of 40 files",
         );
+        assert!(prompt.contains("- read_file (Required: path)"), "{prompt}");
         assert!(
-            prompt.contains("read_file: the read_file tool Required: path."),
-            "{prompt}"
+            prompt.contains("Required: no arguments"),
+            "a tool that needs nothing says so: {prompt}"
         );
-        assert!(prompt.contains("Required: no arguments"), "{prompt}");
+        assert!(
+            !prompt.contains("the read_file tool"),
+            "the sentence the array already carries is not paid for again:\n{prompt}"
+        );
         assert!(prompt.contains("a Rust workspace of 40 files"), "{prompt}");
         assert!(
             !prompt.contains("reply with exactly one JSON object"),
@@ -228,6 +248,10 @@ mod tests {
         let prompt = system(&[tool("search_text", &["pattern"])], false, "");
         assert!(prompt.contains("```json"), "{prompt}");
         assert!(prompt.contains("search_text"), "{prompt}");
+        assert!(
+            prompt.contains("search_text: the search_text tool Required: pattern."),
+            "the prose list is this model's only tool documentation: {prompt}"
+        );
         assert!(
             !prompt.contains("The repository:"),
             "an empty description is not printed as an empty heading"

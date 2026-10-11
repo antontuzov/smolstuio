@@ -42,7 +42,7 @@ fn read(dir: &TempDir, name: &str) -> String {
     })
 }
 
-/// An agent over the eleven default tools, with the mock as its model.
+/// An agent over the fifteen default tools, with the mock as its model.
 fn agent(provider: Arc<MockProvider>, ctx: Context) -> Agent {
     Agent::new(provider, Registry::with_defaults(), ctx)
 }
@@ -205,6 +205,40 @@ async fn the_first_prompt_shows_the_map_the_files_and_the_plan() {
     assert!(
         prompt.contains("What does your first step need?"),
         "{prompt}"
+    );
+}
+
+#[tokio::test]
+async fn a_model_that_has_to_be_told_the_tools_in_prose_still_gets_the_map() {
+    // The expensive half of the budget: a model with no native tool array is
+    // shown every description as sentences, because that list is its only tool
+    // documentation. Fifteen of them against a 4096-token window is what used to
+    // leave no room for the repository at all.
+    let dir = repo(&[
+        ("notes.md", "old text\n"),
+        ("src/lib.rs", "pub fn a() {}\n"),
+    ]);
+    let provider = Arc::new(
+        MockProvider::scripted([
+            Reply::text(
+                "```json\n{\"tool\": \"read_file\", \"arguments\": {\"path\": \"notes.md\"}}\n```",
+            ),
+            Reply::text("Read it; the change itself needs a person to make it."),
+        ])
+        .with_capabilities(Capabilities::basic().window(4096)),
+    );
+    let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
+    finished(agent.run("replace the text in notes.md").await);
+
+    let prompt = first_prompt(&provider);
+    assert!(
+        prompt.contains("reply with exactly one JSON object"),
+        "the list is prose because nothing else carries it"
+    );
+    assert!(prompt.contains("Repository map:"), "{prompt}");
+    assert!(
+        prompt.contains("notes.md") && prompt.contains("src/lib.rs"),
+        "the map names both files: {prompt}"
     );
 }
 

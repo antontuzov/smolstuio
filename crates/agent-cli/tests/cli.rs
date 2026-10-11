@@ -318,6 +318,13 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
         "search_symbols",
         "run_command",
         "git_status",
+        "git_diff",
+        "git_log",
+        "git_show",
+        "git_add",
+        "git_commit",
+        "list_dir",
+        "search_files",
     ] {
         assert!(stdout.contains(name), "{name} missing from:\n{stdout}");
     }
@@ -334,7 +341,7 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
     let value: serde_json::Value =
         serde_json::from_slice(&machine.stdout).expect("valid json for tools --json");
     let rows = value["tools"].as_array().expect("a list");
-    assert_eq!(rows.len(), 11, "{rows:?}");
+    assert_eq!(rows.len(), 15, "{rows:?}");
     assert!(
         rows.iter()
             .all(|row| row["permission"].is_string() && row["enabled"].is_boolean()),
@@ -405,7 +412,7 @@ fn a_switched_off_tool_is_listed_and_marked() {
         "a tool that is off is still shown, so a person can switch it on:\n{stdout}"
     );
     assert!(
-        stdout.contains("10 of 11 tool(s) offered"),
+        stdout.contains("14 of 15 tool(s) offered"),
         "and the count says so: {stdout}"
     );
 }

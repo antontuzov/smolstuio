@@ -560,42 +560,48 @@ impl Policy {
             }
         }
         let policy = self.compiled(action.tool)?;
-        let subject = self.subject(action)?;
+        let subjects = self.subjects(action);
         if let Some(deny) = &policy.deny {
-            if deny.is_match(&subject) {
-                return Some(format!(
-                    "{} is on the denylist for {}",
-                    subject, action.tool
-                ));
+            // Every thing this call touches, not just the first: a tool that
+            // stages three files must not slip a denied one through by naming
+            // it second.
+            if let Some(hit) = subjects.iter().find(|subject| deny.is_match(subject)) {
+                return Some(format!("{hit} is on the denylist for {}", action.tool));
             }
         }
         if let Some(allow) = &policy.allow {
-            if !allow.is_match(&subject) {
+            if let Some(miss) = subjects.iter().find(|subject| !allow.is_match(subject)) {
                 return Some(format!(
-                    "{} is not on the allowlist for {}",
-                    subject, action.tool
+                    "{miss} is not on the allowlist for {}",
+                    action.tool
                 ));
             }
         }
         None
     }
 
-    /// The string the allow and deny lists are matched against.
+    /// Everything the lists are matched against: the command line if there is
+    /// one, otherwise each path the call touches.
     ///
     /// A path inside the workspace is offered relative, because that is the
     /// only spelling an author can write down in a file they expect to commit;
     /// a path that is not inside it keeps its absolute form, so an entry naming
     /// `/etc/hosts` means that file rather than a coincidence of suffixes.
-    fn subject(&self, action: &Action<'_>) -> Option<String> {
+    fn subjects(&self, action: &Action<'_>) -> Vec<String> {
         if let Some(argv) = action.command {
-            return Some(argv.join(" "));
+            return vec![argv.join(" ")];
         }
-        let path = action.paths.first()?;
-        let relative = match path.strip_prefix(&self.root) {
-            Ok(relative) if !relative.as_os_str().is_empty() => relative,
-            _ => path.as_path(),
-        };
-        Some(relative.to_string_lossy().into_owned())
+        action
+            .paths
+            .iter()
+            .map(|path| {
+                let relative = match path.strip_prefix(&self.root) {
+                    Ok(relative) if !relative.as_os_str().is_empty() => relative,
+                    _ => path.as_path(),
+                };
+                relative.to_string_lossy().into_owned()
+            })
+            .collect()
     }
 }
 
@@ -876,6 +882,57 @@ mod tests {
         let decision = policy.check(&outside);
         assert!(decision.blocked(), "{decision}");
         assert!(decision.reason().unwrap().contains("allowlist"));
+    }
+
+    /// A tool that touches several things at once — `git_add` stages a list of
+    /// paths — must not be able to hide one of them by naming it second. This is
+    /// the difference between a denylist that gates the call and one that gates
+    /// the first argument.
+    #[test]
+    fn every_path_a_call_touches_is_gated_not_only_the_first() {
+        let deny = ToolPolicy {
+            sandbox: Some(SandboxMode::Strict),
+            denylist: vec!["secrets.env".to_owned()],
+            ..ToolPolicy::default()
+        };
+        let deny_policy = policy().with_tool_policy("git_add", &deny);
+        let call = Action::new("git_add", Permission::Write)
+            .path("/repo/src/lib.rs")
+            .path("/repo/secrets.env");
+        let decision = deny_policy.check(&call);
+        assert!(decision.blocked(), "{decision}");
+        assert!(
+            decision.reason().unwrap().contains("secrets.env"),
+            "the finding names the path that was refused: {}",
+            decision.reason().unwrap_or_default()
+        );
+
+        let allow = ToolPolicy {
+            sandbox: Some(SandboxMode::Strict),
+            allowlist: vec!["src/**".to_owned()],
+            ..ToolPolicy::default()
+        };
+        let allow_policy = policy().with_tool_policy("git_add", &allow);
+        let outside = Action::new("git_add", Permission::Write)
+            .path("/repo/src/lib.rs")
+            .path("/repo/docs/notes.md");
+        let decision = allow_policy.check(&outside);
+        assert!(decision.blocked(), "{decision}");
+        assert!(
+            decision.reason().unwrap().contains("docs/notes.md"),
+            "an allowlist that only saw the first path would have let this through: {}",
+            decision.reason().unwrap_or_default()
+        );
+
+        // Both paths are on the list, so nothing is refused — and a write is
+        // still a write: the approval mode asks about it, which is not the same
+        // finding and should not be reported as one.
+        let inside = Action::new("git_add", Permission::Write)
+            .path("/repo/src/lib.rs")
+            .path("/repo/src/main.rs");
+        let decision = allow_policy.check(&inside);
+        assert!(!decision.blocked(), "{decision}");
+        assert!(decision.needs_approval(), "{decision}");
     }
 
     #[test]
