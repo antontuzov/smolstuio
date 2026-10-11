@@ -344,6 +344,111 @@ run like this".
 - **No timeout of its own.** The loop owns the run's budget; a second deadline in
   the client would only disagree with it.
 
+## A file this engine cannot load, and the route that works
+
+`prism-ml/Ternary-Bonsai-2-27B-gguf` is a 27B model that fits in 5.95 GB, and it
+is worth walking through because the conclusion generalises: a GGUF file whose
+quantisation this machine's llama.cpp does not know is not a file to force
+through. It is a file that needs the server its own authors ship.
+
+What was checked, and how: the Hub API, the model card, its `KNOWN_ISSUES.md`,
+and the first 8 MB of `Ternary-Bonsai-2-27B-PTQ1_0.gguf` read with one HTTP
+`Range` request. Nothing was downloaded and no weights were run here, so every
+number below is either that file's own header or the model's own documentation.
+There is no throughput claim in this section and none should be inferred from it.
+
+- Not gated, Apache-2.0, base model `Qwen/Qwen3.8-27B`. No token is needed to
+  fetch it, so it never goes near the keychain.
+- The header: GGUF v3, 851 tensors, `general.architecture = qwen35`, 64 blocks,
+  `context_length = 262144`, 5120 embedding, 24 attention heads with 4 KV heads,
+  sampling baked in at temp 1.0 / top_p 0.95 / top_k 20.
+- The 5.95 GB pack is **`PTQ1_0`** — PrismML's own dense-trit packing at 1.75
+  bits/weight. It is *not* llama.cpp's stock ternary type `TQ1_0`; the names are
+  one letter apart and the similarity is a trap. The repo also ships `PQ2_0`
+  (2.13 bits, 7.21 GB), the `F16` original (50.1 GiB) and two `mmproj` vision
+  projectors.
+- The card, verbatim: *"Stock llama.cpp will not run these files. It rejects
+  `PQ2_0` and `PTQ1_0` as unknown types, and it loads `Q2_0` without any warning
+  and produces garbage, because it has no Hadamard activation runtime."* The
+  weights are stored in a rotated basis — a blockwise Hadamard rotation folded in
+  at quantisation time — so a runtime either applies the matching transform to
+  activations or has no business loading the file.
+
+Our `type = "gguf"` provider links stock llama.cpp, so it *is* the binary that
+card refuses. This repository's own header reader names every quantisation up to
+`Q2_0` and reports anything past the end as unknown rather than guessing at it,
+which is the right outcome: a wrong name is how a bad file becomes nonsense
+output. The route that works is the one two sections above already describe —
+their fork's server, our `openai_compatible` provider:
+
+```console
+$ git clone https://github.com/PrismML-Eng/llama.cpp && cd llama.cpp
+$ cmake -B build -DGGML_CUDA=ON && cmake --build build -j   # drop the flag on macOS, Metal is default
+$ ./build/bin/llama-server -m Ternary-Bonsai-2-27B-PTQ1_0.gguf -ngl 99 -c 65536 --port 8080
+```
+
+```toml
+[agent]
+max_context_tokens = 65536
+
+[providers.bonsai]
+type = "openai_compatible"
+base_url = "http://localhost:8080/v1"
+model = "ternary-bonsai-2-27b-ptq1_0"
+context_length = 65536
+tool_calling = true
+max_tokens = 16384
+```
+
+Nothing in that section is special to this model and nothing in this repository
+was changed to make it work. It has not been run from this page either: no weights
+were downloaded here, so the commands are transcribed from what the model's own
+card tells you to do, and this document still makes no claim about an answer from
+real weights on this machine. The keys that decide whether the run is usable are
+`tool_calling` and `max_tokens`, and the second is the difference between an
+answer and an empty one.
+
+**A thinking model needs a large output budget, and it takes two numbers to give
+it one.** Its own issue list opens with *"Empty or truncated answers… the
+reasoning counts against the output limit… This is the most common report we
+see"*, and its workaround is `-n 16384` with `-c 65536`. The loop's default reply
+budget is `DEFAULT_REPLY_TOKENS = 256`, which is exactly the cap that ends a
+thinking model mid-thought. `max_tokens` in the provider section overrides it, but
+`Limits::from_config` clamps any answer budget above a third of
+`[agent] max_context_tokens` down to a sixth of it — an answer that eats a third
+of the window leaves nothing to look at — so `max_tokens = 16384` against the
+default 16000 silently becomes 2666. Raise `max_context_tokens` with it, or the
+override does not arrive.
+
+Three things elsewhere in this repository misjudge a file like this one. They are
+documented here because knowing what the output means is cheaper than trusting it:
+
+- `smollm models verify` has a plausibility floor of 0.3 bytes per parameter and a
+  ceiling of 8. A 1.75-bit pack measures about 0.22, so the check **fails a
+  legitimate file** with "outside the 0.3–8.0 range any quantisation reaches".
+  The file is fine; the range predates ternary packs this dense.
+- The RAM estimate in [hardware.md](hardware.md) charges for full attention on
+  every layer. For a backbone its own card describes as mostly linear attention,
+  that gives a KV cache of roughly 53 GiB at the file's declared 262144-token
+  context, against a real need far lower — most of those layers keep a
+  fixed-size recurrent state, not a growing cache. Read the number as an upper
+  bound for a dense-attention model.
+- A model hint containing `qwen` selects the Qwen2 chat template, so an
+  architecture named `qwen35` is read as a Qwen2 file. Through a server this
+  means nothing, because the server owns its template; it matters the moment a
+  template-reading path meets an architecture name this repository has not seen.
+
+Two more notes from its issue list land directly on this agent loop and are
+already satisfied here, which is worth recording so they stay that way: the chat
+template answers HTTP 500 unless there is **exactly one system message and it is
+first** (the loop builds one and only one), and a tool call whose `arguments` are
+empty or not JSON is a 500 (a call with no arguments serialises `{}`). Two are not
+ours to fix: malformed tool calls, and reasoning re-rendered into later turns
+defeating the prompt cache in a tool loop, are logged there as open model-side
+issues — and the advice not to echo reasoning back is one this provider already
+follows, since it reads `content` and `tool_calls` and never carries a
+`reasoning_content` field into the history it sends.
+
 ## Errors, and whether asking again is sensible
 
 `ProviderError` splits by that one question, because a rate limit and a model

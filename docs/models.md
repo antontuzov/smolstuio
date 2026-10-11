@@ -103,6 +103,13 @@ Each answer is `passed`, `failed` or `skipped`. Skipped is not a soft pass — i
 means the file gave no number to compare against, which happens for a header
 without a parameter count or a file the catalog does not know.
 
+The **Bytes per parameter** range is 0.3–8.0, which every quantisation llama.cpp
+shipped when this was written lands inside. A ternary pack below 2 bits per weight
+does not: `prism-ml/Ternary-Bonsai-2-27B-gguf` measures about 0.22 and so fails
+this check as a legitimate file. The card and the route for it are the last section
+of [providers.md](providers.md); the short version is that the weights are fine and
+the range predates them.
+
 What no check can do is prove every weight byte survived. **GGUF stores no
 per-file checksum**, so bit rot inside the tensor data is invisible from the
 outside; that is also why the answer to a failed check is *delete the file and

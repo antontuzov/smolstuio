@@ -130,6 +130,14 @@ silent substitution.
 value containing `=` or starting with `sk-` is refused, because the config file
 is meant to be safe to commit.
 
+`max_tokens` is the answer budget for one step, and for a model that reasons
+before it speaks it is the setting that decides whether you get an answer at all:
+the default is 256, which ends a thinking model mid-thought. It cannot be set
+alone, because an answer budget above a third of `max_context_tokens` is clamped
+down to a sixth of it — so `max_tokens = 16384` against the default 16000 arrives
+as 2666. Raise both, and give `context_length` the same room. The worked example
+is the last section of [providers.md](providers.md).
+
 ## `[tools.<name>]`
 
 ```toml

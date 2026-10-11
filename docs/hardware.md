@@ -44,6 +44,13 @@ A 360M model with 256 MB of weights at 8K context measures 0.25 + 0.31 + 0.35 �
 0.9 GB. Note that grouped-query attention makes this much smaller than the
 heuristic below, which is why a model can move from "will not fit" to "fits".
 
+The formula does still assume full attention on every layer. A hybrid model — most
+of whose layers keep a fixed-size recurrent state instead of a cache that grows
+with context — is charged for a cache it never builds, so the estimate is an upper
+bound rather than its need. The worked example, including the 53 GiB this
+arithmetic produces for a 27B file that runs in a server on a much smaller
+machine, is the last section of [providers.md](providers.md).
+
 **For a model that is not downloaded yet** there is nothing to read, so the
 coarse figure stands:
 
