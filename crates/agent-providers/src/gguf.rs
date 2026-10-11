@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use async_trait::async_trait;
 use futures::StreamExt;
 use smollm_core::chat::{
-    approx_token_count, normalize_stop_sequences, CancelToken, ChatMessage, ChatRequest,
-    LoadModelOptions, LoadModelRequest, SamplingParams, TokenUsage,
+    approx_token_count, normalize_stop_sequences, CancelToken, ChatRequest, LoadModelOptions,
+    LoadModelRequest, SamplingParams, TokenUsage,
 };
 use smollm_core::gguf::GgufHeader;
 use smollm_core::model::ModelMetadata;
@@ -37,7 +37,9 @@ use smollm_engine::{Engine, EngineKind, EngineManager, TokenStream};
 use agent_config::ProviderConfig;
 
 use crate::error::{ProviderError, ProviderResult};
-use crate::provider::{Capabilities, Completion, CompletionRequest, Provider, StopReason};
+use crate::provider::{
+    usable_messages, Capabilities, Completion, CompletionRequest, Provider, StopReason,
+};
 
 /// `SamplingParams::validate`'s own ceiling, applied to a reply budget rather
 /// than refused: a budget that is too big is a rounding mistake, not a bug.
@@ -165,6 +167,12 @@ impl GgufProvider {
     /// `&self`, so the provider always outlives the call. A load cancelled mid-way
     /// therefore cannot be the last handle to the engine, and dropping a non-final
     /// clone runs no llama.cpp teardown at all.
+    ///
+    /// `unknown_lints` is here because the lint above only exists in a toolchain
+    /// that links an engine: the check is named where llama.cpp's pointers reach the
+    /// future, and clippy reports the name as unknown everywhere else. The pair is
+    /// what keeps both shapes of build linting clean.
+    #[allow(unknown_lints)]
     #[allow(clippy::futures_drop_with_ffi)]
     async fn ensure_loaded(&self) -> ProviderResult<()> {
         if self
@@ -213,7 +221,7 @@ impl GgufProvider {
             // The loop puts its instructions in a system message, and both the
             // model's template and the architecture table render one from the
             // list. Filling `system_prompt` as well would say them twice.
-            messages: usable(&request.messages),
+            messages: usable_messages(&request.messages),
             system_prompt: None,
             params: self.params_for(request),
             stop: self.stop.clone(),
@@ -398,20 +406,23 @@ impl Provider for GgufProvider {
 }
 
 /// The file a gguf section points at, or the reason it cannot be used.
+///
+/// Both refusals are `Unconfigured` rather than `Unreachable`: the thing that is
+/// missing is a line in a file the human edits, and no number of retries writes
+/// it. The second one keeps the path in the message, because "where?" is the
+/// question a person reading this has.
 fn model_path(config: &ProviderConfig, name: &str) -> ProviderResult<PathBuf> {
     let raw = config.path.as_deref().unwrap_or_default().trim();
     if raw.is_empty() {
-        return Err(ProviderError::Unreachable {
-            target: name.to_owned(),
-            message: format!("a gguf provider needs providers.{name}.path to name a .gguf file"),
-        });
+        return Err(ProviderError::unconfigured(format!(
+            "a gguf provider needs providers.{name}.path to name a .gguf file"
+        )));
     }
     let path = expand_home(raw);
     if !path.is_file() {
-        return Err(ProviderError::Unreachable {
-            target: raw.to_owned(),
-            message: "there is no model file here to load".to_owned(),
-        });
+        return Err(ProviderError::unconfigured(format!(
+            "{raw} is not a model file to load"
+        )));
     }
     Ok(path)
 }
@@ -439,10 +450,8 @@ fn expand_home(raw: &str) -> PathBuf {
 
 /// Every stop marker the run should honour, in the shape the engines accept.
 fn stop_sequences(config: &ProviderConfig, name: &str) -> ProviderResult<Vec<String>> {
-    normalize_stop_sequences(&config.stop).map_err(|error| ProviderError::Unreachable {
-        target: name.to_owned(),
-        message: error.to_string(),
-    })
+    normalize_stop_sequences(&config.stop)
+        .map_err(|error| ProviderError::unconfigured(format!("providers.{name}.stop: {error}")))
 }
 
 /// The compute device the config names, and how many layers to ask for.
@@ -484,21 +493,6 @@ fn model_id(config: &ProviderConfig, path: &Path) -> String {
                 .map(|stem| stem.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "gguf".to_owned())
         })
-}
-
-/// A turn with nothing in it carries no information, and the engines refuse an
-/// empty assistant message rather than prompting with it — so a model that once
-/// answered with an empty string does not cost the rest of the run.
-fn usable(messages: &[ChatMessage]) -> Vec<ChatMessage> {
-    messages
-        .iter()
-        .filter(|message| !is_blank_turn(message))
-        .cloned()
-        .collect()
-}
-
-fn is_blank_turn(message: &ChatMessage) -> bool {
-    matches!(message.role, smollm_core::chat::Role::Assistant) && message.content.is_empty()
 }
 
 /// llama.cpp's `finish_reason` in this crate's vocabulary.
@@ -806,21 +800,6 @@ mod tests {
             -1,
             "an unknown device still asks llama.cpp"
         );
-    }
-
-    #[test]
-    fn blank_turns_go_and_the_rest_keep_their_order() {
-        let messages = vec![
-            chat_message(Role::System, "rules"),
-            chat_message(Role::Assistant, ""),
-            chat_message(Role::User, "do the thing"),
-            chat_message(Role::Assistant, "listed src"),
-        ];
-        let kept = usable(&messages);
-        assert_eq!(kept.len(), 3, "only the blank turn leaves");
-        assert_eq!(kept[0].role, Role::System);
-        assert_eq!(kept[1].content, "do the thing", "order is not reordered");
-        assert_eq!(kept[2].content, "listed src");
     }
 
     #[test]

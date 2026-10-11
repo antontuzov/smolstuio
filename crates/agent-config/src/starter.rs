@@ -70,6 +70,10 @@ type = "mock"
 # type = "openai_compatible"
 # base_url = "http://localhost:11434/v1"
 # model = "qwen2.5-coder:1.5b"
+# A server that needs a key takes the NAME of a variable, never the key itself:
+# api_key_env = "OLLAMA_API_KEY"
+# Ask only a server you know fills a tool list, or the run sticks to prose:
+# tool_calling = true
 
 # Pick one when there is more than one:
 # [agent]

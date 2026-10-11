@@ -277,6 +277,25 @@ fn a_context_window_too_small_to_hold_a_prompt_is_refused() {
 }
 
 #[test]
+fn a_tool_calling_switch_on_a_provider_that_cannot_honour_it_is_refused() {
+    let dir = clean_dir();
+    write_project(
+        dir.path(),
+        "[providers.local]\ntype = \"gguf\"\npath = \"~/Models/small.gguf\"\ntool_calling = true\n",
+    );
+    let error = load_in(dir.path(), &home_pairs(dir.path()))
+        .expect_err("a gguf provider would ignore the switch");
+    let said = error.to_string();
+    assert!(said.contains("providers.local.tool_calling"), "{said}");
+    // The two kinds that do read it are left alone.
+    write_project(
+        dir.path(),
+        "[providers.served]\ntype = \"openai_compatible\"\nbase_url = \"http://127.0.0.1:11434/v1\"\ntool_calling = true\n",
+    );
+    assert!(load_in(dir.path(), &home_pairs(dir.path())).is_ok());
+}
+
+#[test]
 fn pasting_a_key_into_the_config_is_refused() {
     let dir = clean_dir();
     write_project(

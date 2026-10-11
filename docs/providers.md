@@ -27,7 +27,7 @@ sends anything anywhere that the configuration did not name.
 | `mock` | none, always compiled | **built** — scripted replies, records every request |
 | `echo` | none, always compiled | **built** — renders the prompt back so you can read the exact context |
 | `gguf` | `gguf`, `llama-cpp` | **built** — loads the configured file through this repository's own engine layer and answers from its weights. Without `llama-cpp` in the build it refuses and names that flag; it never answers from the mock. |
-| `openai_compatible` | `openai-compatible` | **not built** — the HTTP client for Ollama, LM Studio, vLLM, TGI, `llama-server` and `smoll serve` is next |
+| `openai_compatible` | `openai-compatible` | **built** — one `POST /v1/chat/completions` per step, to Ollama, LM Studio, vLLM, TGI, `llama-server` or this repo's own `smoll serve`. Without the feature in the build it refuses and names that flag; it never answers from the mock. |
 | `candle`, `onnx`, `huggingface` | none | **not built**, and no feature claims otherwise |
 
 An unbuilt kind is an error with a name in it, never a fallback. This is the one
@@ -250,6 +250,100 @@ The details that decide whether a run is worth reading:
   because a repair round with a fixed seed re-asks the same question and gets the
   same truncated answer back.
 
+## OpenAI-compatible: the provider that asks a server
+
+`OpenAiProvider` is the one adapter here that talks to something outside this
+process, which is why it is the one with a rule about secrets.
+
+```toml
+[providers.ollama]
+type = "openai_compatible"
+base_url = "http://localhost:11434/v1"
+model = "qwen2.5-coder:1.5b"
+# optional: temperature, top_p, max_tokens, stop, context_length
+# A server that wants a key is given the NAME of a variable, never a value:
+# api_key_env = "OLLAMA_API_KEY"
+# And a server is only handed a tool list once you say it can fill one:
+# tool_calling = true
+```
+
+```console
+$ cargo build -p agent-cli --bin smoll --features openai-compatible --release
+$ smoll task "rename the helper in src/config.rs and update its callers"
+```
+
+Any of these answers that request, because all of them speak the same wire:
+
+```console
+$ ollama serve                                # http://localhost:11434/v1
+$ lm-studio-server                            # http://localhost:1234/v1
+$ vllm serve Qwen/Qwen2.5-Coder-1.5B-Instruct # http://localhost:8000/v1
+$ llama-server -m ~/models/small.gguf         # http://localhost:8080/v1
+$ smollm serve                                # this repository's own server
+```
+
+Those two binaries were run against each other, which is the check that says the
+wire is read correctly rather than merely written:
+
+```console
+$ smollm serve --engine mock --port 18787
+$ smoll -C /tmp/demo task --yes "describe what this repository holds"
+  0 tool call(s), 0 file(s) touched
+record    /tmp/demo/.smoll/sessions/84444ac3-….json
+```
+
+One `POST /v1/chat/completions` left this process and one answer came back; the
+server counted the request and the tokens it generated, and the run wrote a
+session record like any other provider. `--engine mock` answers are labelled
+`simulated` by the engine itself, so nothing in that transcript reads as a model
+that was never run. A URL with nothing behind it costs
+`cannot reach http://…/v1/chat/completions: nothing is listening there` and a
+retry or two, and a section with no `base_url` never reaches the socket at all —
+`agent-config` refuses it, and `smoll` exits with the code a CI job reads as "not
+run like this".
+
+- **`base_url` is written three ways and all three work.** `http://host:11434`,
+  `http://host:11434/v1` and the full endpoint are each finished off to
+  `/v1/chat/completions`, because each spelling is what a different server's own
+  README tells you to paste. A prefix under the version (`http://host:8000/api/v1`)
+  is kept, and a value that is not an `http` or `https` URL is refused before
+  anything is asked.
+- **A key goes to one host, and to that host only.** The bearer is read from the
+  variable the config names, at build time — so a run costs one line of output
+  rather than its first step when the variable is not set — and redirects are not
+  followed at all. A server that answers `302` gets the refusal reported instead
+  of a second request, because following a redirect would hand the header to a
+  host your config never named. `Debug` for the provider prints the name, the
+  model and the URL, and the key as a bracketed note: a run's log, an error's
+  debug output and a panic hook all print providers.
+- **Nothing is assumed about a tool list.** `tool_calling` defaults to false, so
+  `smoll serve` and TGI — which answer a request without reading a `tools` field
+  — get the prose-and-fenced-JSON path the loop already uses. Say `true` for a
+  server you know fills one, and then the calls that come back are still filtered
+  by the list that was offered: a reply naming `delete_everything` when only
+  `list_files` was on offer produces no call at all, and arguments that are not a
+  JSON object are dropped rather than run as `{}`. Both the nested
+  `{"function": …}` shape and the flat `{"name", "arguments"}` shape are read, with
+  the arguments either as a JSON string or as an object, because servers do not
+  agree.
+- **The server's own numbers when it gives them.** A `usage` block is taken as
+  what the model paid; a server that sends none, or one of zeroes, is charged the
+  same character estimate the loop's budget check uses, so a run's token total is
+  never free on paper.
+- **`finish_reason` is read, not guessed.** `length` is a truncated answer, which
+  the loop can answer by raising the budget; `tool_calls` is a call. A matched stop
+  sequence and a finished turn are both `stop` on this wire, so `StopSequence` is
+  not something a server can tell us — the same conclusion the GGUF adapter
+  reaches from the engine.
+- **Status codes decide whether asking again makes sense.** `401` and `403` are a
+  refusal, `400` about a context length is `ContextTooLong`, and everything else
+  that is 4xx is an unusable reply — none of them retried. `429` carries the
+  server's `Retry-After` into `backoff_hint()`, and a connection failure or a 5xx
+  is `Unreachable` with the full URL in it, because "is it running, and on which
+  port" is the question that answer decides.
+- **No timeout of its own.** The loop owns the run's budget; a second deadline in
+  the client would only disagree with it.
+
 ## Errors, and whether asking again is sensible
 
 `ProviderError` splits by that one question, because a rate limit and a model
@@ -263,6 +357,7 @@ that does not exist look identical in a log and want opposite responses:
 | `Unauthorized { status }` | no | no key, wrong key, no permission |
 | `Malformed { message }` | no | the reply is not readable |
 | `ContextTooLong { wanted, available }` | no | the caller must cut context |
+| `Unconfigured { message }` | no | the config section itself is wrong: no path, no URL, a key variable that is not set |
 | `NotCompiled { kind, feature }` | no | this binary was built without that backend |
 | `NotSupported { kind, why }` | no | this repository does not have that provider yet |
 | `Cancelled` | no | a human stopped it |

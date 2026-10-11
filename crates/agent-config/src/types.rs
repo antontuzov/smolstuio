@@ -224,6 +224,12 @@ pub struct ProviderConfig {
     pub max_tokens: Option<u32>,
     #[serde(default)]
     pub stop: Vec<String>,
+    /// Whether to trust this server with a tool list. Off unless a config says
+    /// yes: a small model that is handed tools it cannot fill answers worse than
+    /// one that is asked for a fenced JSON block, and a server that does not
+    /// implement `tools` at all would silently ignore the field.
+    #[serde(default)]
+    pub tool_calling: Option<bool>,
 }
 
 impl ProviderConfig {
@@ -243,6 +249,7 @@ impl ProviderConfig {
             top_p: None,
             max_tokens: None,
             stop: Vec::new(),
+            tool_calling: None,
         }
     }
 
@@ -255,7 +262,7 @@ impl ProviderConfig {
             if missing {
                 problems.push(Problem::new(
                     format!("{key}.{field}"),
-                    format!("a {} provider needs it", self.kind),
+                    format!("a provider of type {} needs it", self.kind),
                 ));
             }
         };
@@ -293,6 +300,20 @@ impl ProviderConfig {
                     format!("{length} tokens is too small to hold a prompt and a reply"),
                 ));
             }
+        }
+        // Only two kinds read this. A GGUF file answers from a chat template that
+        // this build cannot check, so claiming tool calling for it would let a run
+        // send a tool list the model then ignores — the config says so instead.
+        if self.tool_calling.is_some()
+            && !matches!(
+                self.kind,
+                ProviderKind::OpenaiCompatible | ProviderKind::Mock
+            )
+        {
+            problems.push(Problem::new(
+                format!("{key}.tool_calling"),
+                format!("a provider of type {} does not read this", self.kind),
+            ));
         }
         for (field, value) in [("temperature", self.temperature), ("top_p", self.top_p)] {
             if let Some(value) = value {

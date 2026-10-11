@@ -200,6 +200,28 @@ impl Completion {
     }
 }
 
+/// A turn with nothing in it carries no information, and the engines refuse an
+/// empty assistant message rather than prompting with it — so a model that once
+/// answered with an empty string does not cost the rest of the run. Every real
+/// provider filters through here, because the transcript the loop builds is the
+/// same whichever side of the engine or the wire it ends up on.
+///
+/// The `cfg` is that same fact in build terms: mock and echo render or replay a
+/// prompt rather than serialise one, so only the two adapters need it.
+#[cfg(any(feature = "gguf", feature = "openai-compatible"))]
+pub(crate) fn usable_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+    messages
+        .iter()
+        .filter(|message| !is_blank_turn(message))
+        .cloned()
+        .collect()
+}
+
+#[cfg(any(feature = "gguf", feature = "openai-compatible"))]
+fn is_blank_turn(message: &ChatMessage) -> bool {
+    message.role == smollm_core::chat::Role::Assistant && message.content.is_empty()
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     /// The name the loop prints and the config uses to find this provider.
@@ -363,6 +385,27 @@ mod tests {
             "the first answer"
         );
         assert_eq!(mock.requests().len(), 1, "a repair is one request, not two");
+    }
+
+    #[test]
+    #[cfg(any(feature = "gguf", feature = "openai-compatible"))]
+    fn blank_turns_go_and_the_rest_keep_their_order() {
+        let messages = vec![
+            chat_message(Role::System, "rules"),
+            chat_message(Role::Assistant, ""),
+            chat_message(Role::User, "do the thing"),
+            chat_message(Role::Assistant, "listed src"),
+        ];
+        let kept = usable_messages(&messages);
+        assert_eq!(kept.len(), 3, "only the blank turn leaves");
+        assert_eq!(kept[0].role, Role::System);
+        assert_eq!(kept[1].content, "do the thing", "order is not reordered");
+        assert_eq!(kept[2].content, "listed src");
+        // A blank user or system turn stays: the model has to be told the rules
+        // even if this build's loop never sends an empty one.
+        let mut with_blank_user = messages.clone();
+        with_blank_user.push(chat_message(Role::User, ""));
+        assert_eq!(usable_messages(&with_blank_user).len(), 4);
     }
 
     #[test]

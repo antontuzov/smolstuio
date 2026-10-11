@@ -102,10 +102,14 @@ warning naming both numbers, when it asks for more than the host has.
   build: the scripted mock and the echo inspector. A third, `type = "gguf"`,
   loads a model file through this repository's own engine layer — the same llama.cpp
   integration the desktop app uses — and answers from its weights, but only in a
-  binary built with `--features llama-cpp`; without it, and for the
-  OpenAI-compatible adapter, it returns an error naming the missing piece rather
-  than falling back to the mock. There is no TUI, no `chat` and no session picker
-  yet. See [docs/providers.md](docs/providers.md).
+  binary built with `--features llama-cpp`. A fourth, `type = "openai_compatible"`,
+  posts one chat completion per step to any OpenAI-format HTTP server on this
+  machine — Ollama, LM Studio, vLLM, TGI, llama-server, or this repository's own
+  `smollm serve` — in a binary built with `--features openai-compatible`; it talks
+  only to the host the config names and never follows a redirect. Ask a default
+  build for either of the last two and it returns an error naming the missing
+  piece rather than falling back to the mock. There is no TUI, no `chat` and no
+  session picker yet. See [docs/providers.md](docs/providers.md).
 
 We deliberately did not rewrite llama.cpp. The engine is an abstraction
 (`Engine` + `EngineManager`) with one integration point per backend, so each
@@ -371,7 +375,7 @@ crates/
   agent-sandbox     policy, approval modes, audit log and secret redaction
   agent-tools       the nine tools, their registry, the gate and rollback journal
   agent-repo        ignore-aware index, repo map, search ranking and unified diffs
-  agent-providers   Provider trait, tool-call parsing, Mock and Echo providers
+  agent-providers   Provider trait, tool-call parsing, Mock, Echo, GGUF and OpenAI-wire providers
   agent-core        the loop: context, plan, tools, repair, approval, validation
   agent-cli         the `smoll` binary
 desktop/

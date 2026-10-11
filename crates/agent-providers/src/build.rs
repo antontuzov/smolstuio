@@ -18,6 +18,8 @@ use crate::provider::{Capabilities, Provider};
 
 #[cfg(feature = "gguf")]
 use crate::gguf::GgufProvider;
+#[cfg(feature = "openai-compatible")]
+use crate::openai::OpenAiProvider;
 
 /// Build the provider a `[providers.<name>]` section names.
 ///
@@ -42,17 +44,16 @@ pub fn build(name: &str, config: &ProviderConfig) -> Result<Arc<dyn Provider>, P
         }
         #[cfg(not(feature = "gguf"))]
         ProviderKind::Gguf => Err(ProviderError::not_compiled("gguf", "gguf")),
-        ProviderKind::OpenaiCompatible => Err(if cfg!(feature = "openai-compatible") {
-            ProviderError::not_supported(
-                "openai-compatible",
-                Some(
-                    "the HTTP client for Ollama, LM Studio, vLLM and `smoll serve` is next"
-                        .to_owned(),
-                ),
-            )
-        } else {
-            ProviderError::not_compiled("openai-compatible", "openai-compatible")
-        }),
+        // A server on the OpenAI wire needs nothing but a URL and a port, so the
+        // only reason it cannot answer is that this build left the client out.
+        #[cfg(feature = "openai-compatible")]
+        ProviderKind::OpenaiCompatible => OpenAiProvider::new(name, config)
+            .map(|provider| Arc::new(provider) as Arc<dyn Provider>),
+        #[cfg(not(feature = "openai-compatible"))]
+        ProviderKind::OpenaiCompatible => Err(ProviderError::not_compiled(
+            "openai-compatible",
+            "openai-compatible",
+        )),
         ProviderKind::Candle => Err(ProviderError::not_supported(
             "candle",
             Some("no Candle runtime is linked in this build".to_owned()),
@@ -81,9 +82,16 @@ pub fn capabilities_of(config: &ProviderConfig) -> Capabilities {
     if let Some(tokens) = config.context_length {
         capabilities = capabilities.window(tokens as usize);
     }
-    // Only a model this repository knows can hold a tool list is asked to: a
-    // GGUF file says nothing about function calling until its template does.
-    if matches!(config.kind, ProviderKind::Mock) {
+    // A tool list costs tokens on every step of the run, and a model that cannot
+    // fill one answers worse for being handed it. So only a scripted model this
+    // repository knows is assumed able; a server has to be told, and a GGUF file
+    // says nothing about function calling until its template does.
+    let knows_tools = match config.kind {
+        ProviderKind::Mock => config.tool_calling.unwrap_or(true),
+        ProviderKind::OpenaiCompatible => config.tool_calling.unwrap_or(false),
+        _ => false,
+    };
+    if knows_tools {
         capabilities = capabilities.with_tool_calling();
     }
     capabilities
@@ -215,15 +223,54 @@ mod tests {
         }
     }
 
+    /// A default build has no HTTP client in it, so the honest answer is the
+    /// cargo flag — and, as ever, not a script pretending to be a server.
+    #[cfg(not(feature = "openai-compatible"))]
     #[tokio::test]
-    async fn an_openai_compatible_server_is_named_as_the_next_step() {
+    async fn a_served_model_names_the_feature_that_would_ask_it() {
         let mut config = config(ProviderKind::OpenaiCompatible);
         config.base_url = Some("http://localhost:11434/v1".to_owned());
         config.model = Some("qwen2.5:1.5b".to_owned());
         let error = build("ollama", &config)
             .err()
-            .expect("the client does not exist yet");
-        assert!(error.to_string().contains("openai"), "{error}");
+            .expect("this build left the client out");
+        let message = error.to_string();
+        assert!(message.contains("openai"), "{message}");
+        assert!(message.contains("--features"), "{message}");
+        assert!(!error.retryable(), "{message}");
+    }
+
+    #[cfg(feature = "openai-compatible")]
+    #[tokio::test]
+    async fn a_served_model_becomes_a_provider_that_points_at_its_url() {
+        let mut config = config(ProviderKind::OpenaiCompatible);
+        config.base_url = Some("http://localhost:11434".to_owned());
+        config.model = Some("qwen2.5:1.5b".to_owned());
+        let provider = build("ollama", &config).expect("a client is compiled in");
+        assert_eq!(provider.name(), "ollama");
+        assert_eq!(provider.model(), Some("qwen2.5:1.5b"));
+        assert!(
+            !provider.capabilities().tool_calling,
+            "a server is not assumed to answer a tool list"
+        );
+        assert_eq!(provider.capabilities().context_tokens, 4096);
+    }
+
+    #[cfg(feature = "openai-compatible")]
+    #[tokio::test]
+    async fn a_server_has_to_be_told_that_it_can_take_a_tool_list() {
+        let mut config = config(ProviderKind::OpenaiCompatible);
+        config.base_url = Some("http://localhost:11434/v1".to_owned());
+        assert!(!capabilities_of(&config).tool_calling);
+        config.tool_calling = Some(true);
+        assert!(capabilities_of(&config).tool_calling);
+
+        // A scripted model is the one kind this repo knows is able, and even it
+        // can be asked to answer in prose for a run that tests that path.
+        let mut mock = ProviderConfig::new(ProviderKind::Mock);
+        assert!(capabilities_of(&mock).tool_calling);
+        mock.tool_calling = Some(false);
+        assert!(!capabilities_of(&mock).tool_calling);
     }
 
     #[tokio::test]

@@ -35,6 +35,12 @@ pub enum ProviderError {
     #[error("the prompt needs {wanted} tokens but this model holds {available}")]
     ContextTooLong { wanted: usize, available: usize },
 
+    /// The configuration section itself is what is wrong: no path, no URL, a key
+    /// variable that is not set. A retry cannot edit a config file, so this is
+    /// the one family of provider errors that is always a message for the human.
+    #[error("not configured: {message}")]
+    Unconfigured { message: String },
+
     /// This build cannot make this kind of provider, because the feature that
     /// compiles it was not asked for.
     #[error("{kind} providers need this build to be compiled with --features {feature}")]
@@ -85,6 +91,13 @@ impl ProviderError {
     pub fn not_supported(kind: impl Into<String>, why: Option<String>) -> Self {
         Self::NotSupported(kind.into(), why)
     }
+
+    /// Refuse a configuration section, naming the key that makes it unusable.
+    pub fn unconfigured(message: impl Into<String>) -> Self {
+        Self::Unconfigured {
+            message: message.into(),
+        }
+    }
 }
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
@@ -119,6 +132,17 @@ mod tests {
         assert!(!ProviderError::not_compiled("gguf", "gguf").retryable());
         assert!(!ProviderError::not_supported("candle", None).retryable());
         assert!(!ProviderError::Cancelled.retryable());
+        // A config file does not fix itself between one attempt and the next.
+        assert!(!ProviderError::unconfigured("x").retryable());
+    }
+
+    #[test]
+    fn a_configuration_problem_keeps_the_key_it_was_upset_about() {
+        let error = ProviderError::unconfigured("providers.local.path is not a .gguf file");
+        assert_eq!(
+            error.to_string(),
+            "not configured: providers.local.path is not a .gguf file"
+        );
     }
 
     #[test]

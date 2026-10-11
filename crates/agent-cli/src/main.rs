@@ -45,9 +45,10 @@ use crate::terminal::{Printer, Terminal};
                   Build status: the loop, the nine default tools, the sandbox, the audit log and \
                   the session record all work end to end. In a default build the providers that \
                   answer are the scripted mock and the echo inspector; a local .gguf file answers \
-                  from its own weights once the binary is built with --features llama-cpp, and an \
-                  HTTP-compatible server is the next step. Asking for a provider this build cannot \
-                  run says so rather than falling back to a script."
+                  from its own weights in a binary built with --features llama-cpp, and a server \
+                  on the OpenAI wire — Ollama, LM Studio, vLLM, TGI, llama-server, smoll serve — \
+                  answers in one built with --features openai-compatible. Asking for a provider \
+                  this build cannot run says so rather than falling back to a script."
 )]
 struct Cli {
     /// Run as if started in DIR, which is how a script points the agent at a

@@ -85,10 +85,12 @@ context_length = 8192
 
 Optional keys on any provider: `api_key_env`, `token_env`, `device`,
 `context_length`, `temperature`, `top_p`, `max_tokens`, `stop`.
+`tool_calling` is read only by `mock` and `openai_compatible`; anywhere else it
+is a validation error, because the field would be silently ignored.
 
 Which of these a given binary can actually run is [providers.md](providers.md):
 `gguf` answers from its weights only in a build made with `--features
-llama-cpp`, and `openai_compatible` is the next adapter to be written. Asking
+llama-cpp`, and `openai_compatible` needs `--features openai-compatible`. Asking
 for one this build does not have is an error naming the missing piece, never a
 silent substitution.
 
