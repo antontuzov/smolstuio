@@ -400,6 +400,10 @@ pub struct AgentSection {
     pub provider: Option<String>,
     #[serde(default)]
     pub approval_mode: ApprovalMode,
+    /// The boundary for every tool that does not name its own. Absent means
+    /// `strict`, which is the only direction a default can safely go.
+    #[serde(default)]
+    pub sandbox: Option<SandboxMode>,
     #[serde(default = "default_max_steps")]
     pub max_steps: usize,
     #[serde(default = "default_max_context_tokens")]
@@ -418,6 +422,7 @@ impl Default for AgentSection {
             name: default_name(),
             provider: None,
             approval_mode: ApprovalMode::default(),
+            sandbox: None,
             max_steps: default_max_steps(),
             max_context_tokens: default_max_context_tokens(),
             timeout_seconds: default_timeout_seconds(),

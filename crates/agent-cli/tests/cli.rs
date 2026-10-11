@@ -338,6 +338,53 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
 }
 
 #[test]
+fn a_tool_section_that_names_no_registered_tool_is_called_out() {
+    // The bug this guards against is the quiet kind: a denylist written under a
+    // name the build does not register parses fine, gates nothing, and leaves
+    // its author believing `rm -rf` is barred from the run.
+    let dir = tempfile::tempdir().expect("temp dir");
+    std::fs::write(
+        dir.path().join("smoll.toml"),
+        "[providers.mock]\ntype = \"mock\"\n\n[tools.shell]\ndenylist = [\"rm -rf\"]\n",
+    )
+    .expect("write");
+
+    let output = smoll(dir.path(), &["doctor"]);
+    assert!(
+        output.status.success(),
+        "an inert section is a warning, not a broken workspace: {}",
+        text(&output)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning: [tools.shell] gates nothing"),
+        "{stderr}"
+    );
+
+    let value: serde_json::Value =
+        serde_json::from_slice(&smoll(dir.path(), &["tools", "--json"]).stdout)
+            .expect("valid json for tools --json");
+    assert_eq!(
+        value["unmatchedConfigSections"].as_array().expect("a list"),
+        &vec![serde_json::json!("shell")],
+        "a script reading the json gets the same finding"
+    );
+
+    // A section that names a real tool is left alone.
+    std::fs::write(
+        dir.path().join("smoll.toml"),
+        "[providers.mock]\ntype = \"mock\"\n\n[tools.run_command]\nsandbox = \"strict\"\ndenylist = [\"rm -rf\"]\n",
+    )
+    .expect("write");
+    let output = smoll(dir.path(), &["doctor"]);
+    assert!(
+        !text(&output).contains("gates nothing"),
+        "{}",
+        text(&output)
+    );
+}
+
+#[test]
 fn a_switched_off_tool_is_listed_and_marked() {
     let dir = tempfile::tempdir().expect("temp dir");
     std::fs::write(

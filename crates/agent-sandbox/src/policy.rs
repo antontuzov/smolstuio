@@ -312,9 +312,11 @@ impl Policy {
         Self {
             root,
             approval: config.agent.approval_mode,
-            // Strict until a tool's own entry says otherwise. A configuration
-            // that wants a softer boundary has to name the tool it means.
-            sandbox: SandboxMode::Strict,
+            // Strict until the run says otherwise, and then until a tool's own
+            // entry says otherwise. A configuration that wants a softer
+            // boundary has to either set `agent.sandbox` or name the tool it
+            // means; `SMOLL_SANDBOX` sets the first.
+            sandbox: config.agent.sandbox.unwrap_or(SandboxMode::Strict),
             workspace_only: config.privacy.workspace_only,
             tools,
         }
@@ -955,6 +957,25 @@ mod tests {
         assert_eq!(policy.approval_mode(), ApprovalMode::AutonomousSafe);
         assert!(!policy.workspace_only);
         assert_eq!(policy.sandbox_mode(), SandboxMode::Strict);
+    }
+
+    /// `SMOLL_SANDBOX` is the fast way to loosen or tighten a whole run, so it
+    /// has to reach a tool the configuration never mentions. A tool with its own
+    /// section still answers for itself.
+    #[test]
+    fn the_run_wide_sandbox_reaches_tools_with_no_section() {
+        let mut config = Config::default();
+        config.agent.sandbox = Some(SandboxMode::Warn);
+        config.tools.insert(
+            "read_file".to_owned(),
+            ToolPolicy {
+                sandbox: Some(SandboxMode::Strict),
+                ..ToolPolicy::default()
+            },
+        );
+        let policy = Policy::from_config("/repo", &config);
+        assert_eq!(policy.mode_for("search_text"), SandboxMode::Warn);
+        assert_eq!(policy.mode_for("read_file"), SandboxMode::Strict);
     }
 
     #[test]

@@ -22,7 +22,7 @@ mod starter;
 mod types;
 
 pub use error::{ConfigError, Problem};
-pub use load::{load, load_with, Loaded, ENV_VARS, PROJECT_FILE};
+pub use load::{from_toml, load, load_with, Loaded, ENV_VARS, PROJECT_FILE};
 pub use starter::{starter_toml, write_starter};
 pub use types::{
     AgentSection, ApprovalMode, Config, PrivacySection, ProviderConfig, ProviderKind, SandboxMode,

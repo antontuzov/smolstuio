@@ -283,6 +283,7 @@ fn cmd_tools(cwd: &Path, json: bool) -> Result<(), Failure> {
     let policy = Policy::from_config(cwd, &loaded.config);
     let registry = Registry::with_defaults();
     let rows = registry.inventory(&policy);
+    let orphaned = orphaned_tool_names(&loaded.config, &registry);
     let offered: usize = rows
         .iter()
         .filter(|row| row.enabled)
@@ -295,11 +296,15 @@ fn cmd_tools(cwd: &Path, json: bool) -> Result<(), Failure> {
             "tools": rows,
             "offered": enabled,
             "offeredTokensPerStep": offered,
+            "unmatchedConfigSections": orphaned,
         });
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("a value built here")
         );
+        for name in &orphaned {
+            eprintln!("warning: {}", orphan_warning(name));
+        }
         return Ok(());
     }
     for row in &rows {
@@ -320,6 +325,9 @@ fn cmd_tools(cwd: &Path, json: bool) -> Result<(), Failure> {
         rows.len()
     );
     println!("That number is why a small-model agent ships few tools, not many.");
+    for name in &orphaned {
+        eprintln!("warning: {}", orphan_warning(name));
+    }
     Ok(())
 }
 
@@ -371,6 +379,14 @@ fn cmd_doctor(cwd: &Path, json: bool) -> Result<(), Failure> {
     lines.extend(boundaries(cwd, &config));
     lines.extend(what_is_here(cwd, &config));
     lines.push(machine_line());
+
+    // A safety setting that names no tool is the worst kind of typo, so it is
+    // said here even though the file parses and the run would start.
+    warnings.extend(
+        orphaned_tool_names(&config, &Registry::with_defaults())
+            .iter()
+            .map(|name| orphan_warning(name)),
+    );
 
     let ok = lines.iter().all(|line| line.ok);
     if json {
@@ -883,6 +899,32 @@ fn render(problems: Vec<agent_config::Problem>) -> String {
         .map(|problem| problem.to_string())
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// A `[tools.<name>]` section for a name this build does not register.
+///
+/// This is the finding that matters most in the file, and the kind a validator
+/// cannot make: `agent-config` does not know the tool list, and a section for an
+/// unknown tool parses perfectly. It is also not a setting switched off — it is a
+/// setting that does not exist, so a denylist written to keep `rm -rf` out of a
+/// run can sit in a file doing nothing while its author believes the opposite.
+fn orphaned_tool_names(config: &Config, registry: &Registry) -> Vec<String> {
+    let known = registry.names();
+    config
+        .tools
+        .keys()
+        .filter(|name| !known.iter().any(|tool| tool == *name))
+        .cloned()
+        .collect()
+}
+
+/// The sentence a person reading their own file needs, including why an unused
+/// section is worse than a disabled one.
+fn orphan_warning(name: &str) -> String {
+    format!(
+        "[tools.{name}] gates nothing: no tool this build registers has that name. Check the \
+         spelling against `smoll tools`, which lists what a run can be given."
+    )
 }
 
 fn print_warnings(warnings: &[String]) {

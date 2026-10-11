@@ -41,6 +41,7 @@ retries = 2
 | Key | Default | Range | Meaning |
 | --- | --- | --- | --- |
 | `approval_mode` | `approve-edits` | see below | how much may happen without asking |
+| `sandbox` | `strict` | `off`/`warn`/`strict` | the boundary for a tool whose own section says nothing |
 | `max_steps` | `20` | 1–200 | tool calls allowed in one task |
 | `max_context_tokens` | `8000` | 256–1000000 | budget for the prompt |
 | `timeout_seconds` | `120` | 1–3600 | wall-clock limit for one task |
@@ -101,7 +102,7 @@ is meant to be safe to commit.
 ## `[tools.<name>]`
 
 ```toml
-[tools.shell]
+[tools.run_command]
 enabled = true
 sandbox = "strict"
 allowlist = ["cargo test", "cargo clippy", "cargo fmt", "cargo check", "git status", "git diff"]
@@ -112,6 +113,22 @@ denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 (block it). An allowlist entry is a prefix a command must start with; the
 denylist is checked first and wins. A non-empty `allowlist` with no `sandbox`
 key is refused — a list nothing enforces is decoration, not policy.
+
+**The name in the brackets has to be a tool this build registers.** A section
+for any other name parses, applies to nothing, and leaves a denylist that looks
+enforced sitting in a file doing nothing, which is the worse way to believe your
+`rm -rf` is barred. `smoll tools` lists the names that mean something, and both
+`smoll tools` and `smoll doctor` warn about a section that matches none:
+
+```console
+$ smoll doctor
+warning: [tools.shell] gates nothing: no tool this build registers has that
+         name. Check the spelling against `smoll tools`, which lists what a run
+         can be given.
+```
+
+This is checked in the CLI rather than in the parser, because the parser does not
+know the tool list and must not have to.
 
 ## `[privacy]`
 
@@ -134,7 +151,7 @@ warning rather than silently accepting the claim.
 | --- | --- |
 | `SMOLL_CONFIG` | path to the user configuration file |
 | `SMOLL_APPROVAL_MODE` | `agent.approval_mode` |
-| `SMOLL_SANDBOX` | `tools.*.sandbox`, for every tool |
+| `SMOLL_SANDBOX` | `agent.sandbox`, the boundary for every tool that does not name its own |
 | `SMOLL_MAX_STEPS` | `agent.max_steps` |
 | `SMOLL_MAX_CONTEXT_TOKENS` | `agent.max_context_tokens` |
 | `SMOLL_TIMEOUT_SECONDS` | `agent.timeout_seconds` |

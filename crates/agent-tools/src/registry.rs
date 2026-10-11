@@ -350,6 +350,28 @@ mod tests {
         );
     }
 
+    /// A `[tools.<name>]` section for a name nobody registers is not a setting
+    /// that is switched off: it is a setting that does not exist, which is the
+    /// worse way to read a file whose denylist is supposed to be what keeps
+    /// `rm -rf` out of a run.
+    #[test]
+    fn the_starter_template_gates_tools_that_exist() {
+        let config = agent_config::from_toml(agent_config::starter_toml())
+            .expect("the template `smoll init` writes is a valid configuration");
+        let known = Registry::with_defaults().names();
+        assert!(
+            !config.tools.is_empty(),
+            "the template is supposed to show the shape"
+        );
+        let orphaned: Vec<&str> = config
+            .tools
+            .keys()
+            .filter(|name| !known.iter().any(|tool| tool == *name))
+            .map(String::as_str)
+            .collect();
+        assert!(orphaned.is_empty(), "{orphaned:?} gate nothing");
+    }
+
     #[tokio::test]
     async fn a_question_a_person_has_already_answered_is_not_asked_twice() {
         let dir = tempfile::tempdir().expect("a temp repo");

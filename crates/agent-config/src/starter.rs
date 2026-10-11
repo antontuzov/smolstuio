@@ -79,15 +79,18 @@ type = "mock"
 # [agent]
 # provider = "ollama"
 
-# Per-tool policy. A string in `allowlist` is a prefix a command must start
-# with; `denylist` is checked first and wins.
-[tools.shell]
+# Per-tool policy, one section per tool. The name in the brackets has to be a
+# tool this build actually registers: a section for a name nobody answers gates
+# nothing, and `smoll doctor` says when that is so.
+# A string in `allowlist` is a prefix a command must start with; `denylist` is
+# checked first and wins.
+[tools.run_command]
 enabled = true
 sandbox = "strict"
 allowlist = ["cargo test", "cargo clippy", "cargo fmt", "cargo check", "git status", "git diff"]
 denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 
-[tools.fs_grep]
+[tools.search_text]
 enabled = true
 
 [privacy]

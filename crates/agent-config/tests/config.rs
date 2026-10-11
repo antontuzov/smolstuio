@@ -437,30 +437,59 @@ fn smoll_model_lands_on_the_provider_in_use() {
 #[test]
 fn an_allowlist_needs_a_sandbox_to_enforce_it() {
     let dir = clean_dir();
-    write_project(dir.path(), "[tools.shell]\nallowlist = [\"cargo test\"]\n");
+    write_project(
+        dir.path(),
+        "[tools.run_command]\nallowlist = [\"cargo test\"]\n",
+    );
     let error = load_in(dir.path(), &home_pairs(dir.path()))
         .expect_err("a list with no mode is decoration");
-    assert!(error.to_string().contains("tools.shell.sandbox"), "{error}");
+    assert!(
+        error.to_string().contains("tools.run_command.sandbox"),
+        "{error}"
+    );
 
     write_project(
         dir.path(),
-        "[tools.shell]\nsandbox = \"strict\"\nallowlist = [\"cargo test\", \"   \"]\n",
+        "[tools.run_command]\nsandbox = \"strict\"\nallowlist = [\"cargo test\", \"   \"]\n",
     );
     let error =
         load_in(dir.path(), &home_pairs(dir.path())).expect_err("an empty pattern matches all");
     assert!(error.to_string().contains("every command"), "{error}");
 }
 
+/// The point of the variable is to tighten or loosen a whole run from a shell,
+/// including the tools a file never mentions — which is why it sets one default
+/// rather than writing into whichever sections happen to exist. A version of
+/// this that created a section for a tool nobody registers would look like a
+/// setting and enforce nothing.
 #[test]
-fn smoll_sandbox_reaches_tools_that_no_section_named() {
+fn smoll_sandbox_sets_the_boundary_for_tools_that_no_section_named() {
     let dir = clean_dir();
     let mut pairs = home_pairs(dir.path());
-    push(&mut pairs, "SMOLL_SANDBOX", "strict");
+    push(&mut pairs, "SMOLL_SANDBOX", "warn");
     let loaded = load_in(dir.path(), &pairs).expect("loads");
     assert_eq!(
-        loaded.config.tools["shell"].sandbox,
-        Some(SandboxMode::Strict),
+        loaded.config.agent.sandbox,
+        Some(SandboxMode::Warn),
         "the variable has to apply somewhere"
+    );
+    assert!(
+        loaded.config.tools.keys().next().is_none(),
+        "the run-wide mode is not a per-tool section: {:?}",
+        loaded.config.tools.keys().collect::<Vec<_>>()
+    );
+
+    // A tool's own section still wins over the run-wide mode.
+    let dir = clean_dir();
+    write_project(dir.path(), "[tools.run_command]\nsandbox = \"strict\"\n");
+    let mut pairs = home_pairs(dir.path());
+    push(&mut pairs, "SMOLL_SANDBOX", "off");
+    let loaded = load_in(dir.path(), &pairs).expect("loads");
+    assert_eq!(loaded.config.agent.sandbox, Some(SandboxMode::Off));
+    assert_eq!(
+        loaded.config.tools["run_command"].sandbox,
+        Some(SandboxMode::Strict),
+        "the named boundary is the stricter one"
     );
 }
 
@@ -476,10 +505,10 @@ fn a_config_file_written_by_init_is_usable_immediately() {
     );
     assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
     assert_eq!(
-        loaded.config.tools["shell"].sandbox,
+        loaded.config.tools["run_command"].sandbox,
         Some(SandboxMode::Strict)
     );
-    assert!(loaded.config.tools["shell"]
+    assert!(loaded.config.tools["run_command"]
         .allowlist
         .contains(&"cargo test".to_owned()));
 }

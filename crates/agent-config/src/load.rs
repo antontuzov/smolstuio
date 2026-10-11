@@ -140,6 +140,26 @@ pub fn load_with(cwd: &Path, env: &dyn Fn(&str) -> Option<String>) -> Result<Loa
     })
 }
 
+/// Read one configuration out of text a person wrote, with no files and no
+/// environment in it.
+///
+/// `load` is the door a run comes through; this is the door a check comes
+/// through — the starter template and the tools that a build registers are both
+/// worth comparing against each other, and neither question needs a disk.
+pub fn from_toml(text: &str) -> Result<Config, ConfigError> {
+    let merged = toml::from_str::<toml::Table>(text).map_err(|source| ConfigError::Shape {
+        message: source.to_string(),
+        sources: "the text handed in".to_owned(),
+    })?;
+    let config =
+        Config::deserialize(toml::Value::Table(merged)).map_err(|source| ConfigError::Shape {
+            message: source.to_string(),
+            sources: "the text handed in".to_owned(),
+        })?;
+    config.validate()?;
+    Ok(config)
+}
+
 fn deserialize(merged: toml::Table, sources: &[String]) -> Result<Config, ConfigError> {
     let from = if sources.is_empty() {
         "the built-in defaults".to_owned()
@@ -225,13 +245,11 @@ fn apply_env(
         config.agent.approval_mode = mode;
     }
     if let Some(mode) = env_parsed::<SandboxMode>(env, "SMOLL_SANDBOX", problems) {
-        // Applied to every tool, including ones no section named: the variable
-        // is the fast way to tighten the whole run, and `shell` is the tool it
-        // is meant for.
-        for policy in config.tools.values_mut() {
-            policy.sandbox = Some(mode);
-        }
-        config.tools.entry("shell".to_owned()).or_default().sandbox = Some(mode);
+        // The whole run at once: the boundary a tool falls back to when its own
+        // section says nothing. Setting it here rather than writing a mode into
+        // every existing section means the variable still applies to a tool the
+        // file never mentions — and to one registered next release.
+        config.agent.sandbox = Some(mode);
     }
     if let Some(steps) = env_parsed::<usize>(env, "SMOLL_MAX_STEPS", problems) {
         config.agent.max_steps = steps;
