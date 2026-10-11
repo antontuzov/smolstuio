@@ -46,15 +46,13 @@ impl Tool for RunCommand {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "run_command",
-            "Run one program with these arguments and return its exit code, stdout and stderr. \
-             There is no shell: `&&`, `|`, `>` and `;` are literal text, so each argument is its \
-             own item — [\"cargo\", \"test\"], not \"cargo test && echo done\". `path` runs it in \
-             that directory instead of the repository root. Output past the limit is cut off and \
-             says so.",
+            "Run one program with these arguments; its exit code, stdout and stderr. There \
+             is no shell: `&&`, `|`, `>` and `;` are literal text, so each argument is its \
+             own item — [\"cargo\", \"test\"]. `path` runs it there instead of the root.",
             schema::object(
                 json!({
-                    "argv": schema::string_array("the program first, then each argument as its own item"),
-                    "command": schema::string("a program with no arguments, or a command line split on spaces; prefer argv"),
+                    "argv": schema::string_array("the program first, then each argument"),
+                    "command": schema::string("a command line split on spaces; prefer argv"),
                     "path": schema::path("directory to run in; default the repository root"),
                 }),
                 &[],

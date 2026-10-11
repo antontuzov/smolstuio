@@ -191,22 +191,12 @@ async fn the_first_prompt_shows_the_map_the_files_and_the_plan() {
         ("notes.md", "old text\n"),
         ("src/lib.rs", "pub fn a() {}\n"),
     ]);
-    // A window that can hold the whole offered tool list: twenty-four schemas are
-    // 3217 tokens of the 4096 a floor model advertises, which leaves nothing for a
-    // file body. That shortfall is its own test below; this one is about the shape
-    // of a prompt that has room, so it is given a roomy model.
-    let provider = Arc::new(
-        MockProvider::scripted([
-            Reply::call("read_file", json!({"path": "notes.md"})),
-            Reply::call(
-                "write_file",
-                json!({"path": "notes.md", "content": "new text\n"}),
-            ),
-            Reply::text("Rewrote notes.md."),
-        ])
-        .with_capabilities(Capabilities::basic().with_tool_calling().window(8_192)),
-    );
-    let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
+    // On the mock's own advertised 4096, which is the floor a provider may claim.
+    // Twenty-four schemas used to cost 3217 tokens of it and leave nothing for a
+    // file body; the definitions are now priced at 2641, so the smallest model
+    // gets the rules, the whole list, the plan, the map and the bodies it needs.
+    // What happens when even that does not fit is the test after this one.
+    let (mut agent, provider) = read_write_summarise(&dir, "new text\n");
     finished(agent.run("replace the text in notes.md").await);
 
     let prompt = first_prompt(&provider);
@@ -238,11 +228,25 @@ async fn a_window_too_small_for_the_tool_list_runs_on_the_map_instead_of_bodies(
         ("notes.md", "old text\n"),
         ("src/lib.rs", "pub fn a() {}\n"),
     ]);
-    // The mock's advertised 4096, which is the floor a provider may claim. The
-    // twenty-four schemas leave no room for a body on top of the rules, the map's
-    // floor, a reply and the reserve — and the loop gives up the bodies first,
-    // because a model that has seen the map can still ask for the file it wants.
-    let (mut agent, provider) = read_write_summarise(&dir, "new text\n");
+    // A window that holds the rules and the twenty-four schemas plus the map's
+    // floor, and nothing more: 3584 is above the 3423 the loop says it needs to
+    // run at all, and below what a file body would take. The loop gives up the
+    // bodies rather than the list, because a model that has seen the map can still
+    // ask for the file it wants — which is what this run then does. Before the
+    // definitions were shortened this was what a 4096-token window was reduced to;
+    // 3584 is where the same trade-off still bites.
+    let provider = Arc::new(
+        MockProvider::scripted([
+            Reply::call("read_file", json!({"path": "notes.md"})),
+            Reply::call(
+                "write_file",
+                json!({"path": "notes.md", "content": "new text\n"}),
+            ),
+            Reply::text("Rewrote notes.md."),
+        ])
+        .with_capabilities(Capabilities::basic().with_tool_calling().window(3_584)),
+    );
+    let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
     let session = finished(agent.run("replace the text in notes.md").await);
 
     let prompt = first_prompt(&provider);
@@ -267,10 +271,12 @@ async fn a_window_too_small_for_the_tool_list_runs_on_the_map_instead_of_bodies(
 
 #[tokio::test]
 async fn a_model_that_has_to_be_told_the_tools_in_prose_still_gets_the_map() {
-    // The expensive half of the budget: a model with no native tool array is
-    // shown every description as sentences, because that list is its only tool
-    // documentation. Twenty-four of them against a 4096-token window is what used
-    // to leave no room for the repository at all.
+    // The cheaper half of the budget, and the only one some models have: with no
+    // native tool array, every description is written into the instructions as
+    // sentences, because that list is the model's only tool documentation. Against
+    // a 4096-token window the twenty-four of it measure 1751 tokens on the first
+    // turn, where the same list as a native block measures 3578 — so the provider
+    // that cannot call a function is the one left with room for the repository.
     let dir = repo(&[
         ("notes.md", "old text\n"),
         ("src/lib.rs", "pub fn a() {}\n"),

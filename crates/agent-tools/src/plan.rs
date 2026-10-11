@@ -257,9 +257,9 @@ impl Tool for TaskPlanUpdate {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "task_plan_update",
-            "Rewrite the plan when the work turns out different from what was planned. Copy the \
-             lines you are keeping and put an x in the brackets of the ones already done, so the \
-             run keeps what happened: `[x] 1. read src/lib.rs`.",
+            "Rewrite the plan when the work turns out different from what was planned. Copy \
+             the lines you keep and put an x in the brackets of the done ones: `[x] 1. read \
+             src/lib.rs`.",
             schema::object(
                 json!({
                     "steps": schema::string_array("the whole plan now, done steps marked; eight at most"),

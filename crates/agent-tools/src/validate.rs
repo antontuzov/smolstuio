@@ -66,10 +66,10 @@ impl ProjectCommand {
             name: "test_run",
             purpose: Purpose::Validate,
             phrase: "test",
-            description: "Run the test command this project declares in its own manifests and \
-                          report its exit code and output. Takes no arguments: the command comes \
-                          from the project, never from the caller. A failing test is an answer, \
-                          not a broken tool.",
+            description:
+                "Run the test command this project declares in its own manifests; its exit code \
+                 and output. Takes no arguments — the command comes from the project. A failing \
+                 test is an answer, not a broken tool.",
             timeout: Duration::from_secs(COMMAND_TIMEOUT_SECONDS),
             check_only: false,
         }
@@ -80,10 +80,10 @@ impl ProjectCommand {
             name: "check_run",
             purpose: Purpose::Check,
             phrase: "check",
-            description: "Compile and type-check this project with the check command its own \
-                          manifests declare, without running its tests. Takes no arguments. \
-                          Quicker than `build_run` or `test_run`, and it is the one to ask after \
-                          an edit that might not build.",
+            description:
+                "Compile and type-check with the check command this project declares, without \
+                 running its tests. Takes no arguments. Quicker than `build_run`, and the one \
+                 to ask after an edit that might not build.",
             timeout: Duration::from_secs(COMMAND_TIMEOUT_SECONDS),
             check_only: false,
         }
@@ -94,9 +94,10 @@ impl ProjectCommand {
             name: "lint_run",
             purpose: Purpose::Lint,
             phrase: "lint",
-            description: "Run the lint or type-check command this project declares in its own \
-                          manifests and report what it finds. Takes no arguments. A project with \
-                          no declared lint command is reported rather than guessed at.",
+            description:
+                "Run the lint or type-check command this project declares and report what it \
+                 finds. Takes no arguments; a project that declares none is reported, not \
+                 guessed at.",
             timeout: Duration::from_secs(LINT_TIMEOUT_SECONDS),
             check_only: false,
         }
@@ -107,9 +108,10 @@ impl ProjectCommand {
             name: "format_run",
             purpose: Purpose::Format,
             phrase: "format",
-            description: "Ask this project's formatter which files it would change, in report \
-                          mode only: nothing is rewritten. Takes no arguments. A formatter that \
-                          cannot be put in report mode is refused rather than run.",
+            description:
+                "Ask this project's formatter which files it would change, in report mode only: \
+                 nothing is rewritten. Takes no arguments; a formatter that cannot report is \
+                 refused rather than run.",
             timeout: Duration::from_secs(FORMAT_TIMEOUT_SECONDS),
             check_only: true,
         }
@@ -120,9 +122,9 @@ impl ProjectCommand {
             name: "build_run",
             purpose: Purpose::Build,
             phrase: "build",
-            description: "Build the project with the build command it declares in its own \
-                          manifests and report its exit code and output. Takes no arguments, and \
-                          nothing is uploaded or published: a build only writes build output.",
+            description:
+                "Build with the command this project declares in its own manifests; its exit \
+                 code and output. Takes no arguments, and nothing is uploaded or published.",
             timeout: Duration::from_secs(COMMAND_TIMEOUT_SECONDS),
             check_only: false,
         }

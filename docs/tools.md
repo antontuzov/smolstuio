@@ -12,39 +12,53 @@ spends **on every step of every run**. The list is the largest fixed cost a smal
 model pays, which is why these tools take as few arguments, and as few words, as
 they can.
 
+A description here is not marketing copy, and shortening one has a floor: each
+keeps **what the answer is** (a diff, an exit code plus output, `file:line:text`),
+**the one clause that stops a wrong call** (`run_command` starts no shell,
+`search_text` is not a regular expression, a patch's context must match exactly,
+`git_add` refuses `.`), and **what a person needs before approving it** (`smoll
+rollback` does not undo a commit; `delete_file` restores only a text file within
+the read limit). Word that survives those three is the word a model would have
+had to spend a step rediscovering.
+
 ## The table
 
 | Tool | Class | Timeout | Output cap | Tokens/step | What it does |
 | --- | --- | --- | --- | --- | --- |
-| `read_file` | read-only | 20s | 8192 B | 149 | one file, at most a few hundred lines |
-| `list_dir` | read-only | 20s | 8192 B | 121 | one directory's entries |
-| `search_files` | read-only | 20s | 8192 B | 143 | file names against a glob |
-| `search_text` | read-only | 60s | 8192 B | 207 | a literal string inside files |
-| `search_symbols` | read-only | 60s | 8192 B | 212 | where a name is defined |
-| `git_status` | read-only | 20s | 8192 B | 129 | what the working tree holds |
-| `git_diff` | read-only | 20s | 8192 B | 186 | the change, as a diff |
-| `git_log` | read-only | 20s | 8192 B | 154 | recent history, 100 commits at most |
-| `git_show` | read-only | 20s | 8192 B | 157 | one commit |
-| `memory_recall` | read-only | 20s | 8192 B | 80 | what earlier runs kept |
+| `read_file` | read-only | 20s | 8192 B | 135 | one file, at most a few hundred lines |
+| `list_dir` | read-only | 20s | 8192 B | 106 | one directory's entries |
+| `search_files` | read-only | 20s | 8192 B | 124 | file names against a glob |
+| `search_text` | read-only | 60s | 8192 B | 178 | a literal string inside files |
+| `search_symbols` | read-only | 60s | 8192 B | 159 | where a name is defined |
+| `git_status` | read-only | 20s | 8192 B | 94 | what the working tree holds |
+| `git_diff` | read-only | 20s | 8192 B | 139 | the change, as a diff |
+| `git_log` | read-only | 20s | 8192 B | 122 | recent history, 100 commits at most |
+| `git_show` | read-only | 20s | 8192 B | 112 | one commit |
+| `memory_recall` | read-only | 20s | 8192 B | 76 | what earlier runs kept |
 | `task_plan_create` | read-only | 20s | 8192 B | 110 | the model's own plan, in place of the scaffold |
-| `task_plan_update` | read-only | 20s | 8192 B | 129 | the same plan, rewritten part-way through |
-| `write_file` | write | 20s | 8192 B | 143 | replace a whole file |
-| `patch_file` | write | 20s | 8192 B | 176 | apply a unified diff |
-| `memory_store` | write | 20s | 8192 B | 95 | keep one sentence for the next run |
-| `git_add` | write | 20s | 16384 B | 165 | stage the files it names |
-| `git_commit` | write | 120s | 8192 B | 156 | record what is staged |
-| `delete_file` | destructive | 20s | 8192 B | 128 | remove one file, if the journal can restore it |
-| `run_command` | execute | 300s | 8192 B | 205 | one program, named by the caller |
-| `test_run` | execute | 300s | 8192 B | 78 | the project's test command |
-| `check_run` | execute | 300s | 8192 B | 80 | the project's compile check |
-| `lint_run` | execute | 120s | 8192 B | 71 | the project's linter |
-| `build_run` | execute | 300s | 8192 B | 72 | the project's build |
-| `format_run` | execute | 60s | 8192 B | 71 | what the formatter would change, reporting only |
+| `task_plan_update` | read-only | 20s | 8192 B | 117 | the same plan, rewritten part-way through |
+| `write_file` | write | 20s | 8192 B | 127 | replace a whole file |
+| `patch_file` | write | 20s | 8192 B | 125 | apply a unified diff |
+| `memory_store` | write | 20s | 8192 B | 86 | keep one sentence for the next run |
+| `git_add` | write | 20s | 16384 B | 120 | stage the files it names |
+| `git_commit` | write | 120s | 8192 B | 116 | record what is staged |
+| `delete_file` | destructive | 20s | 8192 B | 101 | remove one file, if the journal can restore it |
+| `run_command` | execute | 300s | 8192 B | 165 | one program, named by the caller |
+| `test_run` | execute | 300s | 8192 B | 70 | the project's test command |
+| `check_run` | execute | 300s | 8192 B | 71 | the project's compile check |
+| `lint_run` | execute | 120s | 8192 B | 62 | the project's linter |
+| `build_run` | execute | 300s | 8192 B | 59 | the project's build |
+| `format_run` | execute | 60s | 8192 B | 67 | what the formatter would change, reporting only |
 
-**3217 tokens a step for all twenty-four.** Twelve read, five write, one deletes,
+**2641 tokens a step for all twenty-four.** Twelve read, five write, one deletes,
 six run a program. The classes are the sandbox's vocabulary, and
 `smoll tools` prints them because a person should not have to guess which of
 these can remove a file.
+
+The whole list used to cost 3217. Every tool is still here, and every clause a
+guard test insists on is still here; what changed is the number of words spent on
+each one, and 576 tokens a step is what the smallest model was given back for the
+file it actually asked to read.
 
 ## What the classes decide
 
@@ -159,20 +173,25 @@ enabled = false
 
 Eight switched off (`git_status`, `git_diff`, `git_log`, `git_show`,
 `patch_file`, `task_plan_update`, `memory_recall`, `check_run`) leaves 16 offered
-and 2126 tokens a step instead of 3217. `smoll tools` prints the current number,
+and 1785 tokens a step instead of 2641. `smoll tools` prints the current number,
 and a run that cannot fit its model's window stops with `context tokens needed`
 and names this command in the hint under it, rather than trimming the repository
 down to nothing.
 
 One measured consequence worth knowing before a twenty-fifth tool is added: on a
-two-file repository a first step costs 3743 prompt tokens when the model is handed
-the tools as a native block and 2250 when it is told them in prose. The prose list
-is one sentence per tool where the block is a schema per tool. At a 4096-token
-window the native block leaves no room for a file body — the model still gets the
-repo map, the plan and the whole list, and has to ask for the file it wants. That
-is the honest shape of the trade, and it is asserted by
+two-file repository, the first turn puts 3578 tokens in front of a model that is
+handed the tools as a native block and 1751 in front of one that has to be told
+them in prose — one sentence per tool where the block is a schema per tool. Both
+numbers are inside a 4096-token window now, so both models get the rules, the
+whole list, the plan, the repo map **and the bodies of the files in it**. Shortening
+the definitions is what bought that back; before it the native block cost enough
+at 4096 that the model was given the map and no file contents at all, and had to
+ask for the file it wanted with `read_file`. The window where the list still fits
+and a file body does not is 3584, and
 `a_window_too_small_for_the_tool_list_runs_on_the_map_instead_of_bodies` in
-`crates/agent-core/tests/loop_runs.rs`.
+`crates/agent-core/tests/loop_runs.rs` asserts exactly that: the map names the
+files, none of them is handed over, all twenty-four tools are still offered, and
+the run reads what it needs and finishes without a warning.
 
 ## What is not here
 

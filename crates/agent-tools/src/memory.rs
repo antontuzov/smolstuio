@@ -73,8 +73,8 @@ impl Tool for MemoryStore {
         ToolDefinition::new(
             "memory_store",
             "Keep one short sentence for the runs after this one: a decision nobody wrote down, \
-             which file is the awkward one, what the tests need. It is stored in this repository \
-             with any secret in it masked, not in the model.",
+             which file is the awkward one, what the tests need. Stored here, with any secret \
+             in it masked.",
             schema::object(
                 json!({"note": schema::string("one short sentence to remember")}),
                 &["note"],
@@ -151,8 +151,8 @@ impl Tool for MemoryRecall {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "memory_recall",
-            "Read back what `memory_store` kept, newest last. The first turn of a run already \
-             shows the most recent few, so ask when you need more of them.",
+            "Read back what `memory_store` kept, newest last. A run's first turn already \
+             shows the most recent few; ask when you need more.",
             schema::object(
                 json!({"limit": schema::integer("how many to return; default 10", 1)}),
                 &[],

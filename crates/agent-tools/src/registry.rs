@@ -379,12 +379,16 @@ mod tests {
         let cost = registry.token_cost();
         assert!(cost > 0, "offering a tool costs prompt tokens");
         assert!(
-            cost < 3_600,
+            cost < 2_800,
             "the whole list is {cost} tokens, and a 4096-token model has to keep the \
-             repository's share too: the rules and the plan want about 700 more, the answer \
-             wants 256, and what is left over is the map — which is why these tools take as few \
-             arguments and as few words as they can, and why a run that cannot fit the list \
-             says so instead of trimming the repository to nothing"
+             repository's share too: the rules, the plan and the map want about 600 more, the \
+             answer wants 256, and what is left over is the file bodies. Measured on this \
+             machine against a two-file repository, {cost} of list puts the first turn at 3578 \
+             tokens for a native-block model and 1751 for a prose one, and both are handed the \
+             bodies of the files the map names. Crossing this bound is how a twenty-fifth tool \
+             quietly takes that back, which is why these tools take as few arguments and as few \
+             words as they can, and why a run that cannot fit the list says so instead of \
+             trimming the repository to nothing"
         );
         let classes: Vec<&str> = {
             let mut seen: Vec<&str> = registry

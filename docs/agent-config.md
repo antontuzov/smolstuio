@@ -56,23 +56,28 @@ the repository — about a quarter to the repo map, the rest to the file bodies 
 first turn is handed — and the map keeps a floor even when the window leaves
 nothing to spare, because a model with no table of contents assumes the
 repository is the three files it was shown. `smoll tools` prints what offering
-the twenty-four default tools costs on every step of a run: 3217 tokens together.
+the twenty-four default tools costs on every step of a run: 2641 tokens together.
 
 That cost is counted whether a model is shown the tools as a native block or has
 them written into its instructions, so the number a run reports is the number the
 window has to hold, answer room included. Measured on this machine against a
-two-file repository, a first step wants 3743 tokens of a model that is handed the
-tools as a native block and 2250 of one that has to be told them in prose — the
-prose list is one sentence per tool where the block is a JSON schema per tool, so
-for the smallest windows the *less* capable provider is the one that gets room
-for file bodies. At 4096 tokens a native-block model gets the rules, the whole
-tool list, the plan and the repo map, and no file bodies at all: it has to ask
-for the file it wants, which is why `read_file` is the cheapest tool to keep.
-Switching eight of them off (`git_status`, `git_diff`, `git_log`, `git_show`,
-`patch_file`, `task_plan_update`, `memory_recall`, `check_run`) leaves 16 offered
-and 2126 tokens of list. A run that still does not fit after dropping every file
-and every line of the map stops with `context tokens needed`, and the hint under
-it names the part `smoll tools` can give back.
+two-file repository, the first turn puts 3578 tokens in front of a model that is
+handed the tools as a native block and 1751 in front of one that has to be told
+them in prose — the prose list is one sentence per tool where the block is a JSON
+schema per tool, so for the smallest windows the *less* capable provider is the
+one that gets room for file bodies. At 4096 tokens, the floor a provider may
+claim, both of them now get the rules, the whole tool list, the plan, the repo map
+and the bodies of the files the map names. They did not use to: at 3217 tokens of
+list a native-block model got the map and no file contents at all, and had to ask
+for the file it wanted. Shortening every description — keeping each tool's answer,
+its one wrong-call guard and the fact a person needs before approving it, and
+nothing else — is what bought those tokens back; no tool was dropped and none was
+put behind a switch. Switching eight of them off (`git_status`, `git_diff`,
+`git_log`, `git_show`, `patch_file`, `task_plan_update`, `memory_recall`,
+`check_run`) leaves 16 offered and 1785 tokens of list, which is room for a bigger
+repository instead. A run that still does not fit after dropping every file and
+every line of the map stops with `context tokens needed`, and the hint under it
+names the part `smoll tools` can give back.
 
 ### Approval modes
 

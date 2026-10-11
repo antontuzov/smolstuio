@@ -76,12 +76,10 @@ impl Tool for GitStatus {
         ToolDefinition::new(
             "git_status",
             "What git thinks of the working tree: the branch line, then one line per changed \
-             path (`M` modified, `??` untracked, `A` added, `D` deleted), staged state in the \
-             first column. `path` narrows it to one file or directory. Reads only: nothing is \
-             fetched, staged, committed or stashed.",
+             path (`M` modified, `??` untracked, `A` added, `D` deleted). Reads only.",
             schema::object(
                 json!({
-                    "path": schema::path("file or directory to narrow the listing to"),
+                    "path": schema::path("file or directory to narrow it to"),
                 }),
                 &[],
             ),
@@ -148,15 +146,13 @@ impl Tool for GitDiff {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "git_diff",
-            "The diff of the working tree against the index, or the staged changes when `staged` \
-             is true. `path` narrows it to one file or directory; `context_lines` sets the \
-             unchanged lines around each hunk (git's default 3). The answer is the diff, not a \
-             summary of it. Reads only: the working tree is not touched and nothing is fetched.",
+            "The working tree's diff against the index, or the staged changes when `staged`. \
+             The answer is the diff, not a summary. Reads only.",
             schema::object(
                 json!({
                     "path": schema::path("file or directory to narrow the diff to"),
                     "staged": schema::boolean("diff what is staged for commit instead"),
-                    "context_lines": schema::integer("unchanged lines around each hunk; default 3", 0),
+                    "context_lines": schema::integer("unchanged lines around each hunk; default git's 3", 0),
                 }),
                 &[],
             ),
@@ -202,12 +198,11 @@ impl Tool for GitLog {
         ToolDefinition::new(
             "git_log",
             "The commits behind the work, one line each, newest first, as `sha date author: \
-             subject`. `limit` says how many (default 20, at most 100); `path` narrows it to \
-             what touched one file or directory. Reads only, and a range like `main..HEAD` is \
-             not accepted — name one revision to git_show.",
+             subject`. A range like `main..HEAD` is not accepted — one revision at a time. \
+             Reads only.",
             schema::object(
                 json!({
-                    "limit": schema::integer("how many commits to list; default 20, max 100", 1),
+                    "limit": schema::integer("how many to list; default 20, max 100", 1),
                     "path": schema::path("file or directory whose history to read"),
                 }),
                 &[],
@@ -289,14 +284,12 @@ impl Tool for GitShow {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "git_show",
-            "One revision: who made it, its message, and the diff it introduced. `revision` is a \
-             sha, a tag or branch name, or `HEAD` with `~2` or `^1`; anything that could read as \
-             a flag is refused before git runs. `stat` gives the files and their line counts \
-             instead of the hunks — ask for it when a commit is large. Reads only.",
+            "One revision: who made it, its message, and the diff it introduced. Anything that \
+             could read as a flag is refused before git runs. Reads only.",
             schema::object(
                 json!({
                     "revision": schema::string("the commit to show: a sha, a tag or branch name, or HEAD, HEAD~1, HEAD^"),
-                    "stat": schema::boolean("list the changed files and their counts, without the diff"),
+                    "stat": schema::boolean("the files and their line counts instead of the hunks"),
                 }),
                 &["revision"],
             ),
@@ -342,14 +335,12 @@ impl Tool for GitAdd {
         ToolDefinition::new(
             "git_add",
             "Stage the named files or directories so `git_commit` can record them. Each path \
-             goes to git after `--`, so a file name is never a flag, and contents are not \
-             touched. Nothing unmentioned is staged — `.` is refused, so a run cannot sweep the \
-             tree into one commit — and a path `.gitignore` hides is refused rather than forced. \
-             This writes git's index: an approval mode that asks before writing asks here, and \
-             `smoll rollback` does not undo what this staged.",
+             goes to git after `--`, so a name is never a flag, and nothing unmentioned is \
+             staged: `.` and a .gitignored path are refused. A write, so the approval mode may \
+             ask first; `smoll rollback` does not undo this.",
             schema::object(
                 json!({
-                    "paths": schema::string_array("the files or directories to stage, at least one"),
+                    "paths": schema::string_array("the paths to stage, at least one"),
                 }),
                 &["paths"],
             ),
@@ -391,15 +382,13 @@ impl Tool for GitCommit {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "git_commit",
-            "Record what `git_add` has staged as one commit, with `message` as its message. Only \
-             what is already staged goes in: nothing is added on the side, no commit is amended, \
-             and no hook is skipped, so this repository's own pre-commit checks get to refuse it. \
-             Nothing leaves the machine — there is no push, no remote and no branch here. An \
-             approval mode that asks before writing asks here, and `smoll rollback` does not undo \
-             a commit.",
+            "Record what `git_add` has staged as one commit, with `message`. A write, so the \
+             approval mode may ask first. Only what is staged goes in: nothing added on the \
+             side, no commit amended, no hook skipped. Nothing leaves the machine — no push, \
+             no remote. `smoll rollback` does not undo a commit.",
             schema::object(
                 json!({
-                    "message": schema::string("the commit message, one argument: what changed and why"),
+                    "message": schema::string("the message: what changed and why"),
                 }),
                 &["message"],
             ),

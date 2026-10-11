@@ -44,15 +44,14 @@ impl Tool for SearchText {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "search_text",
-            "Find a literal string in the files under `path` and return `file:line:text` for \
-             each hit, at most 60. Case-insensitive unless `case_sensitive`; `glob` narrows \
-             which files are opened (\"*.rs\"). Not a regular expression: every character \
-             matches itself. Skips what .gitignore skips, binaries and files over 2 MB.",
+            "Find a literal string in the files under `path` that .gitignore allows, as \
+             `file:line:text`, at most 60. Not a regex: every character matches itself. \
+             `glob` narrows the files (\"*.rs\"); `case_sensitive` is off by default.",
             schema::object(
                 json!({
                     "pattern": schema::string("the text to find, exactly as written"),
-                    "path": schema::path("file or directory to search; default the repository"),
-                    "glob": schema::string("only files whose relative path matches this, e.g. \"*.rs\""),
+                    "path": schema::path("file or directory; default the repository"),
+                    "glob": schema::string("only files whose path matches this glob"),
                     "case_sensitive": schema::boolean("match case exactly; default false"),
                 }),
                 &["pattern"],
@@ -175,13 +174,12 @@ impl Tool for SearchFiles {
         ToolDefinition::new(
             "search_files",
             "List the files under `path` whose relative path matches the glob `pattern` \
-             (\"**/*.rs\", \"src/**/test*\"), at most 200. A pattern without a slash also \
-             matches on its own name, so \"sandbox.rs\" works. Says what is there without \
-             reading any of it.",
+             (\"**/*.rs\"), at most 200. A pattern with no slash matches the name alone. \
+             Names only; nothing is read.",
             schema::object(
                 json!({
                     "pattern": schema::string("glob the relative path must match"),
-                    "path": schema::path("directory to search; default the repository root"),
+                    "path": schema::path("directory to search; default the root"),
                 }),
                 &["pattern"],
             ),
@@ -250,16 +248,14 @@ impl Tool for SearchSymbols {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::new(
             "search_symbols",
-            "Find where `symbol` is defined, as `file:line:` followed by the declaration, at \
-             most 60. It reads what each file declares — fn, struct, enum, trait, class, def, a \
-             Markdown heading, a TOML table — so \"where does this live\" costs one call instead \
-             of a search and ten reads. Only top-level declarations are seen: a method inside an \
-             impl or a class is not, and `search_text` is the tool for that.",
+            "Find where `symbol` is declared — fn, struct, enum, trait, class, def, a \
+             heading, a TOML table — as `file:line:` and the declaration, at most 60. It is \
+             top-level only; `search_text` finds a method inside an impl.",
             schema::object(
                 json!({
-                    "symbol": schema::string("the name to find; matches part of a name, case-insensitive"),
-                    "path": schema::path("file or directory to search; default the repository"),
-                    "glob": schema::string("only files whose relative path matches this, e.g. \"*.rs\""),
+                    "symbol": schema::string("the name to find; part of a name matches, ignoring case"),
+                    "path": schema::path("file or directory; default the repository"),
+                    "glob": schema::string("only files whose path matches this glob"),
                 }),
                 &["symbol"],
             ),
