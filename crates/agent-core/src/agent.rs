@@ -48,9 +48,9 @@
 //!     Context::new(dir.path()),
 //! )
 //! .autoapprove();
-//! let session = runtime
-//!     .block_on(agent.run("replace the text in notes.md"))
-//!     .expect("the run finishes");
+//! let run = runtime.block_on(agent.run("replace the text in notes.md"));
+//! assert!(run.succeeded(), "the run finishes");
+//! let session = run.session;
 //!
 //! assert_eq!(session.touched.len(), 1, "one file was written");
 //! assert_eq!(
@@ -191,6 +191,28 @@ impl Limits {
     }
 }
 
+/// A run, and what stopped it if anything did.
+///
+/// A run that was refused halfway still has a transcript and still may have
+/// written files, so the session is not carried inside the error: the caller
+/// writes the session file either way and reads `error` for the exit code.
+#[derive(Debug)]
+pub struct Run {
+    pub session: Session,
+    pub error: Option<AgentError>,
+}
+
+impl Run {
+    /// How the run said it ended, once it had said.
+    pub fn outcome(&self) -> Option<&Outcome> {
+        self.session.finished()
+    }
+
+    pub fn succeeded(&self) -> bool {
+        self.error.is_none()
+    }
+}
+
 /// The agent: a provider, the tools it may use, and the workspace it is bound to.
 pub struct Agent {
     provider: Arc<dyn Provider>,
@@ -286,14 +308,18 @@ impl Agent {
 
     /// One task, start to finish.
     ///
-    /// Every event lands in the returned session, and an `Err` means the run
-    /// could not be carried out — a limit reached, a provider that would not
+    /// Every event lands in the returned session, and `Run::error` says whether
+    /// the run could be carried out — a limit reached, a provider that would not
     /// answer, a person who said no. A refusal by the policy is not one of those:
     /// the model is told about it and the run goes on.
     ///
+    /// The transcript comes back whether or not the run erred, because a run
+    /// that stopped at its step budget may already have written files, and the
+    /// session file is where the record of what those writes replaced lives.
+    ///
     /// The loop reads and writes the filesystem through the tools, so a caller
     /// that cannot spare a thread runs this on its own task.
-    pub async fn run(&mut self, task: &str) -> Result<Session, AgentError> {
+    pub async fn run(&mut self, task: &str) -> Run {
         let mut state = State::new(task);
         self.emit(
             &mut state,
@@ -313,7 +339,10 @@ impl Agent {
                         at_ms: now_ms(),
                     },
                 );
-                Ok(state.session)
+                Run {
+                    session: state.session,
+                    error: None,
+                }
             }
             Err(error) => {
                 self.emit(
@@ -323,7 +352,10 @@ impl Agent {
                         at_ms: now_ms(),
                     },
                 );
-                Err(error)
+                Run {
+                    session: state.session,
+                    error: Some(error),
+                }
             }
         }
     }

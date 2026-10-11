@@ -15,8 +15,8 @@ use tempfile::TempDir;
 
 use agent_config::ApprovalMode;
 use agent_core::{
-    Agent, AgentError, AgentEvent, ApprovalDecision, Budget, Limits, Observer, Outcome, Scripted,
-    Session, StepStatus,
+    Agent, AgentError, AgentEvent, ApprovalDecision, Budget, Limits, Observer, Outcome, Run,
+    Scripted, Session, StepStatus, StoredSession,
 };
 use agent_providers::{Capabilities, MockProvider, Reply};
 use agent_sandbox::Policy;
@@ -109,14 +109,24 @@ fn warnings(session: &Session) -> Vec<String> {
         .collect()
 }
 
+/// The transcript of a run that was expected to carry its task through.
+fn finished(run: Run) -> Session {
+    match run.error {
+        None => run.session,
+        Some(error) => panic!("the run was expected to finish: {error}"),
+    }
+}
+
+/// The error a run was expected to stop on.
+fn stopped(run: Run) -> AgentError {
+    run.error.expect("the run was expected to stop")
+}
+
 #[tokio::test]
 async fn a_run_reads_then_writes_then_says_what_it_did() {
     let dir = repo(&[("notes.md", "old text\n")]);
     let (mut agent, provider) = read_write_summarise(&dir, "new text\n");
-    let session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("the run finishes");
+    let session = finished(agent.run("replace the text in notes.md").await);
 
     assert_eq!(read(&dir, "notes.md"), "new text\n", "the change landed");
     assert_eq!(
@@ -151,10 +161,7 @@ async fn a_run_reads_then_writes_then_says_what_it_did() {
 async fn a_rollback_puts_the_tree_back_the_way_it_was() {
     let dir = repo(&[("notes.md", "old text\n")]);
     let (mut agent, _) = read_write_summarise(&dir, "new text\n");
-    let mut session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("the run finishes");
+    let mut session = finished(agent.run("replace the text in notes.md").await);
     assert_eq!(read(&dir, "notes.md"), "new text\n");
 
     let undone = agent.rollback(&mut session);
@@ -176,10 +183,7 @@ async fn the_first_prompt_shows_the_map_the_files_and_the_plan() {
         ("src/lib.rs", "pub fn a() {}\n"),
     ]);
     let (mut agent, provider) = read_write_summarise(&dir, "new text\n");
-    agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("the run finishes");
+    finished(agent.run("replace the text in notes.md").await);
 
     let prompt = first_prompt(&provider);
     assert!(
@@ -216,10 +220,7 @@ async fn a_model_without_function_calling_is_asked_in_prose_and_understood() {
         .with_capabilities(Capabilities::basic()),
     );
     let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
-    let session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("prose calls still drive a run");
+    let session = finished(agent.run("replace the text in notes.md").await);
 
     let prompt = first_prompt(&provider);
     assert!(
@@ -250,10 +251,7 @@ async fn a_write_in_suggest_only_becomes_a_proposal_and_touches_nothing() {
         Reply::text("Here is the change I would make."),
     ]);
     let mut agent = agent(provider, ctx).autoapprove();
-    let session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("a proposal is a finished run");
+    let session = finished(agent.run("replace the text in notes.md").await);
 
     assert_eq!(read(&dir, "notes.md"), "old text\n", "nothing was written");
     assert!(session.touched.is_empty());
@@ -290,10 +288,7 @@ async fn one_persons_answer_carries_the_rest_of_the_run() {
         Reply::text("Renamed both helpers."),
     ]);
     let mut agent = agent(provider, Context::new(dir.path())).with_approver(approver.clone());
-    let session = agent
-        .run("rename the helpers")
-        .await
-        .expect("the run finishes");
+    let session = finished(agent.run("rename the helpers").await);
 
     assert_eq!(approver.times_asked(), 1, "the class was agreed to once");
     let asks = approver.asks();
@@ -323,10 +318,7 @@ async fn a_yes_about_one_file_is_still_a_question_about_the_next() {
         Reply::text("Renamed both helpers."),
     ]);
     let mut agent = agent(provider, Context::new(dir.path())).with_approver(approver.clone());
-    agent
-        .run("rename the helpers")
-        .await
-        .expect("the run finishes");
+    finished(agent.run("rename the helpers").await);
 
     assert_eq!(
         approver.times_asked(),
@@ -350,10 +342,7 @@ async fn a_person_saying_no_ends_the_run_without_writing() {
     let mut agent = agent(provider, Context::new(dir.path()))
         .with_approver(approver.clone())
         .with_observer(observer.clone());
-    let error = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect_err("a refusal stops the run");
+    let error = stopped(agent.run("replace the text in notes.md").await);
 
     assert!(matches!(error, AgentError::Rejected { .. }), "{error}");
     assert_eq!(error.exit_code(), 2, "a refusal is not a crash");
@@ -384,10 +373,7 @@ async fn a_run_that_will_not_finish_is_stopped_by_its_step_budget() {
             ..Limits::default()
         })
         .autoapprove();
-    let error = agent
-        .run("read the file over and over")
-        .await
-        .expect_err("a model that never summarises has to be stopped");
+    let error = stopped(agent.run("read the file over and over").await);
 
     match error {
         AgentError::BudgetExhausted(Budget::Steps { used, max }) => {
@@ -413,7 +399,7 @@ async fn a_cancelled_run_stops_at_the_next_step() {
     let mut agent = agent(provider, Context::new(dir.path()))
         .with_cancel(cancel)
         .with_observer(observer.clone());
-    let error = agent.run("anything").await.expect_err("it was cancelled");
+    let error = stopped(agent.run("anything").await);
 
     assert!(matches!(error, AgentError::Cancelled), "{error}");
     assert_eq!(
@@ -449,10 +435,7 @@ async fn a_provider_that_was_down_is_asked_again_and_the_run_says_so() {
         Reply::text("Rewrote notes.md."),
     ]);
     let mut agent = agent(provider, Context::new(dir.path())).autoapprove();
-    let session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("a retry is not a failure");
+    let session = finished(agent.run("replace the text in notes.md").await);
 
     assert_eq!(read(&dir, "notes.md"), "new text\n");
     let said = warnings(&session).join("\n");
@@ -477,10 +460,7 @@ async fn an_answer_cut_off_mid_call_is_repaired_from_the_models_own_words() {
         Reply::text("Rewrote notes.md."),
     ]);
     let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
-    let session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("one repair round is enough");
+    let session = finished(agent.run("replace the text in notes.md").await);
 
     assert_eq!(
         read(&dir, "notes.md"),
@@ -515,10 +495,7 @@ async fn a_second_unreadable_answer_is_reported_rather_than_guessed_at() {
     let cut_off = "{\"tool\": \"write_file\", \"arguments\": {\"path\": \"notes.md\"";
     let provider = scripted([Reply::truncated(cut_off), Reply::truncated(cut_off)]);
     let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
-    let error = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect_err("nothing was salvaged");
+    let error = stopped(agent.run("replace the text in notes.md").await);
 
     match error {
         AgentError::MalformedAnswer { message, raw } => {
@@ -543,10 +520,7 @@ async fn a_tool_that_is_not_here_is_said_so_with_the_names_that_are() {
         Reply::call("fs_delete_everything", json!({"path": "."})),
     ]);
     let mut agent = agent(provider, Context::new(dir.path())).autoapprove();
-    let error = agent
-        .run("delete the repository")
-        .await
-        .expect_err("a second unknown name is the end of it");
+    let error = stopped(agent.run("delete the repository").await);
 
     match error {
         AgentError::UnknownTool { name, suggestions } => {
@@ -590,10 +564,7 @@ async fn a_validation_command_a_person_declines_is_a_warning_not_a_failure() {
         Reply::text("Renamed the helper."),
     ]);
     let mut agent = agent(provider, ctx).with_approver(approver.clone());
-    let session = agent
-        .run("rename the helper in src/lib.rs")
-        .await
-        .expect("a declined check still finishes the run");
+    let session = finished(agent.run("rename the helper in src/lib.rs").await);
 
     assert_eq!(
         read(&dir, "src/lib.rs"),
@@ -627,10 +598,7 @@ async fn the_observer_sees_every_event_the_session_records() {
     let observer = Arc::new(Collector::default());
     let (agent, _) = read_write_summarise(&dir, "new text\n");
     let mut agent = agent.with_observer(observer.clone());
-    let session = agent
-        .run("replace the text in notes.md")
-        .await
-        .expect("the run finishes");
+    let session = finished(agent.run("replace the text in notes.md").await);
 
     let live = observer.events();
     assert_eq!(
@@ -642,4 +610,56 @@ async fn the_observer_sees_every_event_the_session_records() {
     assert!(live
         .iter()
         .any(|event| matches!(event, AgentEvent::Reflected { .. })));
+}
+
+#[tokio::test]
+async fn a_run_stopped_halfway_leaves_a_record_that_can_undo_it() {
+    let dir = repo(&[("notes.md", "old text\n")]);
+    let provider = Arc::new(
+        MockProvider::scripted([
+            Reply::call(
+                "write_file",
+                json!({"path": "notes.md", "content": "new text\n"}),
+            ),
+            Reply::call("read_file", json!({"path": "notes.md"})),
+        ])
+        .repeat_last(),
+    );
+    let mut agent = agent(provider, Context::new(dir.path()))
+        .with_limits(Limits {
+            max_steps: 2,
+            ..Limits::default()
+        })
+        .autoapprove();
+    let run = agent.run("change the file, then keep looking").await;
+
+    assert!(
+        matches!(run.error, Some(AgentError::BudgetExhausted(_))),
+        "the stop is the point of the test: {:?}",
+        run.error
+    );
+    assert_eq!(
+        read(&dir, "notes.md"),
+        "new text\n",
+        "the write happened first"
+    );
+    assert_eq!(
+        run.session.touched,
+        vec![Path::new("notes.md").to_owned()],
+        "and the stopped transcript names it"
+    );
+
+    // A session file written from a run that never finished is what the next
+    // process rolls back from.
+    let stored = StoredSession::new(run.session, agent.context().snapshots());
+    stored.write(dir.path()).expect("writable");
+    let read_back = StoredSession::latest(dir.path())
+        .expect("a directory")
+        .expect("the stopped run is recorded");
+    read_back.restore(dir.path());
+    assert_eq!(
+        read(&dir, "notes.md"),
+        "old text\n",
+        "undoing works from the file, not from the run"
+    );
 }

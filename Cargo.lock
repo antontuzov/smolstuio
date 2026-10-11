@@ -18,7 +18,7 @@ dependencies = [
  "agent-repo",
  "agent-sandbox",
  "agent-tools",
- "anyhow",
+ "async-trait",
  "clap",
  "serde_json",
  "smollm-core",
@@ -27,6 +27,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

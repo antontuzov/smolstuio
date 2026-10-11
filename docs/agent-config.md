@@ -143,7 +143,22 @@ else is refused with the variable's name, not the file key it corresponds to.
 ```console
 $ smoll config          # the resolved configuration, as TOML, with the files it came from on stderr
 $ smoll config --json   # the same thing for a script
+$ smoll doctor          # this machine, this repository and this config, read and reported
+$ smoll tools           # what a run may be given, and the prompt tokens that costs on every step
 ```
 
 Keys are snake_case throughout; the values of `approval_mode` and `sandbox` are
 kebab-case. An unknown key at any level is an error rather than a shrug.
+
+## Changing it for one run
+
+`smoll task` takes three flags that override the file for a single run instead of
+editing it: `--approval-mode MODE`, `--dry-run` (this run changes nothing; every
+write comes back as a proposed diff) and `--yes` (ask nobody, which is what a CI
+job needs and the policy still refuses what the policy refuses).
+
+Whatever a run did, it leaves behind `.smoll/sessions/<id>.json`: the transcript,
+the token count, and the journal of what each write replaced. `smoll review`
+shows one of those records — the newest, unless you give `--id` — and `smoll
+rollback` puts the recorded files back the way the run found them. A file you
+edited afterwards is named and left alone rather than overwritten again.

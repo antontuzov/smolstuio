@@ -28,11 +28,13 @@ agent-sandbox.workspace = true
 agent-tools.workspace = true
 smollm-core.workspace = true
 smollm-hardware.workspace = true
-anyhow.workspace = true
+async-trait.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
+
 [dev-dependencies]
 tempfile = "3"

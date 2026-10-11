@@ -43,10 +43,18 @@ let error = build("local", &config).unwrap_err();
 assert!(!error.retryable());
 ```
 
-That message is what a CLI run will print once the loop is wired behind
-`smoll task`. Today the subcommand answers `not wired yet`, and `smoll chat` is
-not a subcommand at all. Nothing in this document that is not in the "built" row
-above has reached a terminal yet.
+That message is what a run prints today, with the provider's own name in front
+of it:
+
+```console
+$ smoll task --yes "rename the helper"
+error: provider local: gguf providers need this build to be compiled with --features gguf
+$ echo $?
+2
+```
+
+`smoll chat` is not a subcommand at all yet. Nothing in this document that is not
+in the "built" row above has reached a terminal.
 
 ## Capabilities are asked, not assumed
 

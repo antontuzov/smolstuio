@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use agent_repo::patch::{Restored, Snapshot};
+use agent_repo::patch::{restore_all, Restored, Snapshot};
 use agent_sandbox::{AuditLog, Permission, Policy};
 
 /// What this run has written, and what a person has already agreed to.
@@ -139,23 +139,22 @@ impl Context {
         seen
     }
 
+    /// What this run wrote, oldest first.
+    ///
+    /// Enough to put the tree back from another process, which is why a session
+    /// file stores these rather than only the list of names: the record of what
+    /// was there before has to survive the run that read it.
+    pub fn snapshots(&self) -> Vec<Snapshot> {
+        self.with_journal(|journal| journal.snapshots.clone())
+    }
+
     /// Put the tree back the way it was, newest change first.
     ///
     /// A file a person has edited since the agent wrote it is left alone and
     /// named in the answer: work that grew after the run is not the run's to
     /// remove.
     pub fn rollback(&self) -> Vec<Restored> {
-        let mut done = Vec::new();
-        let snapshots = self.with_journal(|journal| journal.snapshots.clone());
-        for snapshot in snapshots.iter().rev() {
-            match snapshot.restore(&self.root) {
-                Ok(restored) => done.push(restored),
-                Err(source) => {
-                    tracing::warn!(%source, "a write could not be rolled back");
-                }
-            }
-        }
-        done
+        restore_all(&self.root, &self.snapshots())
     }
 
     /// A person has answered for a call. `for_run` means the whole class of thing
@@ -247,5 +246,27 @@ mod tests {
         let ctx = Context::new("/repo");
         assert!(ctx.changes().is_empty());
         assert!(ctx.rollback().is_empty());
+    }
+
+    #[test]
+    fn the_snapshots_a_run_keeps_are_enough_to_undo_it() {
+        let dir = tempfile::tempdir().expect("a temp repo");
+        let ctx = Context::new(dir.path().to_path_buf());
+        let patch = agent_repo::patch::diff("notes.md", "", "agent words\n");
+        let planned = agent_repo::patch::plan(dir.path(), &patch).expect("a plan");
+        let snapshot = agent_repo::patch::write(dir.path(), &planned).expect("written");
+        ctx.record(snapshot.clone());
+
+        assert_eq!(ctx.snapshots(), vec![snapshot], "the journal, oldest first");
+        assert_eq!(ctx.rollback().len(), 1);
+        assert!(
+            !dir.path().join("notes.md").exists(),
+            "the file the run created is gone"
+        );
+        assert_eq!(
+            ctx.snapshots().len(),
+            1,
+            "the journal is a record, not a queue: a rollback leaves it readable"
+        );
     }
 }

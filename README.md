@@ -82,19 +82,26 @@ warning naming both numbers, when it asks for more than the host has.
   it — Mock answers rather than the app failing to start. That is deliberate.
 - **`candle` is an adapter without a runner.** The feature compiles the seam and
   clearly reports that it cannot serve a request, so it never displaces Mock.
-- **The coding agent is mid-build.** A second binary, `smoll`, exists in
-  `crates/agent-cli` and currently resolves and prints its configuration
-  (`smoll init`, `smoll config`); `doctor`, `tools` and `task` answer that they
-  are not wired yet, and there is no `chat`. The loop itself is built and tested:
-  it gathers repository context, proposes a plan, asks a provider for tool calls,
-  gates every call through the sandbox policy, repairs a truncated answer once,
-  proposes a diff in `suggest-only`, writes with approval, runs the project's own
-  validation command and can undo what it wrote — driven end to end in
+- **The coding agent is a working CLI with two providers.** A second binary,
+  `smoll`, lives in `crates/agent-cli` and runs a task end to end today:
+  `smoll init` writes a starter config, `smoll task "…"` gathers repository
+  context, proposes a plan, asks the provider for tool calls, gates every call
+  through the sandbox policy, repairs a truncated answer once, proposes a diff in
+  `suggest-only`, writes with approval, runs the project's own validation command
+  and leaves a record in `.smoll/sessions/`; `smoll review` reads that record
+  back and `smoll rollback` puts the files the run wrote the way they were.
+  `smoll doctor` answers what this machine, repository and config add up to, and
+  `smoll tools` lists what a run can be given and what offering it costs in
+  prompt tokens. Every command takes `-C/--cwd` and `--json`, and the exit code
+  distinguishes a task that did not work (1) from one it should not have been
+  asked to do (2). The nine default tools are `read_file`, `write_file`,
+  `patch_file`, `list_dir`, `search_files`, `search_text`, `run_command`,
+  `git_status` and `git_diff` — see
   [crates/agent-core/tests/loop_runs.rs](crates/agent-core/tests/loop_runs.rs)
-  against the scripted mock. That mock is the only provider that answers today,
-  alongside the echo inspector, which reports what a prompt costs: the GGUF and
-  OpenAI-compatible adapters return an error naming the missing piece rather
-  than falling back to the mock.
+  for the behaviours that are actually proven. Two providers answer: the scripted
+  mock and the echo inspector. The GGUF and OpenAI-compatible adapters return an
+  error naming the missing piece rather than falling back to the mock, and there
+  is no TUI, no `chat` and no session picker yet.
 
 We deliberately did not rewrite llama.cpp. The engine is an abstraction
 (`Engine` + `EngineManager`) with one integration point per backend, so each

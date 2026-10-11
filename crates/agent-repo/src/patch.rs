@@ -272,12 +272,16 @@ pub fn write(root: &Path, planned: &[Planned]) -> Result<Snapshot, PatchError> {
 }
 
 /// What was on disk before a write, kept so it can be undone.
+///
+/// Both fields serialise, because a snapshot's point is to outlive the write it
+/// guards: a rollback from a session file left by an earlier process still has
+/// to know what the agent put into a file it created, or it cannot tell an
+/// untouched creation from work a person added afterwards.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
     /// The path as the repository names it, and its contents beforehand; `None`
     /// is the record that the file did not exist and so must be removed again.
     prior: Vec<(String, Option<String>)>,
-    #[serde(skip)]
     written: std::collections::BTreeMap<String, String>,
 }
 
@@ -339,6 +343,25 @@ impl Snapshot {
         }
         Ok(restored)
     }
+}
+
+/// Put a journal's worth of snapshots back, newest first.
+///
+/// A run undoes from the end because the last write is the one that assumed
+/// everything before it. A snapshot that cannot be restored is reported and
+/// skipped: the rest of the tree still goes back.
+pub fn restore_all(root: &Path, snapshots: &[Snapshot]) -> Vec<Restored> {
+    snapshots
+        .iter()
+        .rev()
+        .filter_map(|snapshot| match snapshot.restore(root) {
+            Ok(restored) => Some(restored),
+            Err(source) => {
+                tracing::warn!(%source, "a write could not be rolled back");
+                None
+            }
+        })
+        .collect()
 }
 
 fn write_back(target: &Path, relative: &str, text: Option<&String>) -> Result<bool, PatchError> {
@@ -905,6 +928,62 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.path().join("src/new.rs")).expect("readable"),
             "mine now\n"
+        );
+    }
+
+    #[test]
+    fn a_snapshot_read_back_from_a_file_still_protects_a_persons_edit() {
+        let dir = tempfile::tempdir().expect("a temp repo");
+        let planned = plan(dir.path(), &diff("notes.md", "", "first\n")).expect("a plan");
+        let snapshot = write(dir.path(), &planned).expect("written");
+
+        // The journal a session file carries, decoded by a later process.
+        let json = serde_json::to_string(&snapshot).expect("serialisable");
+        let kept: Snapshot = serde_json::from_str(&json).expect("deserialisable");
+        assert_eq!(kept, snapshot, "nothing a rollback needs is dropped");
+
+        std::fs::write(dir.path().join("notes.md"), "someone else's work\n").expect("writable");
+        let restored = restore_all(dir.path(), std::slice::from_ref(&kept));
+        assert_eq!(
+            restored[0].left_alone,
+            vec![PathBuf::from("notes.md")],
+            "a created file is only removed while it still holds what the agent wrote"
+        );
+        assert!(dir.path().join("notes.md").exists());
+
+        std::fs::write(dir.path().join("notes.md"), "first\n").expect("writable");
+        let restored = restore_all(dir.path(), &[kept]);
+        assert_eq!(restored[0].paths.len(), 1, "{restored:?}");
+        assert!(
+            !dir.path().join("notes.md").exists(),
+            "untouched, it goes back to absent"
+        );
+    }
+
+    #[test]
+    fn a_journal_undoes_from_the_newest_write_back() {
+        let dir = tempfile::tempdir().expect("a temp repo");
+        let mut journal = Vec::new();
+        for name in ["one.md", "two.md"] {
+            let planned = plan(
+                dir.path(),
+                &diff(name, "", format!("{name} body\n").as_str()),
+            )
+            .expect("a plan");
+            journal.push(write(dir.path(), &planned).expect("written"));
+        }
+        assert!(dir.path().join("two.md").is_file());
+
+        let restored = restore_all(dir.path(), &journal);
+        assert_eq!(restored.len(), 2);
+        assert!(
+            restored[0].paths[0].ends_with("two.md"),
+            "the last write is undone first: {:?}",
+            restored[0].paths
+        );
+        assert!(
+            !dir.path().join("one.md").exists() && !dir.path().join("two.md").exists(),
+            "everything the journal created is gone"
         );
     }
 

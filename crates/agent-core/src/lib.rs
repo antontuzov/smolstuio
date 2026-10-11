@@ -15,13 +15,15 @@ mod agent;
 mod approve;
 mod error;
 mod prompt;
+mod session;
 mod types;
 
-pub use agent::{Agent, Limits, Observer};
+pub use agent::{Agent, Limits, Observer, Run};
 pub use agent_sandbox::Permission;
 pub use agent_tools::{ToolCall, ToolOutput, ToolResult, ToolStatus};
 pub use approve::{Approver, AutoApprove, RefuseAll, Scripted};
 pub use error::{AgentError, Budget};
+pub use session::{StoredSession, SESSIONS_DIR};
 pub use types::{
     now_ms, AgentEvent, ApprovalDecision, ApprovalRequest, ContextBundle, ContextFile, Outcome,
     Plan, PlanStep, Session, StepStatus,
