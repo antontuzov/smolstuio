@@ -38,6 +38,17 @@ jobs:
       - name: Tests
         run: cargo test --all
 
+      # `agent-providers`' GGUF and HTTP adapters are behind features, so the job
+      # above never compiles them. They build against this repo's own engine layer
+      # with the mock engine in place of llama.cpp, so no C++ toolchain is needed
+      # here — this step is the guard against an adapter that only compiles in a
+      # feature build nobody runs.
+      - name: Clippy (provider adapters)
+        run: cargo clippy -p agent-providers --all-targets --features gguf,openai-compatible -- -D warnings
+
+      - name: Tests (provider adapters)
+        run: cargo test -p agent-providers --features gguf,openai-compatible
+
   # llama.cpp is compiled from source by the `llama-cpp` feature, so it needs
   # cmake and a C++ toolchain and takes real minutes. It is checked here, on the
   # two platforms whose runners are guaranteed to have that, rather than making
@@ -73,6 +84,20 @@ jobs:
 
       - name: Engine tests
         run: cargo test -p smollm-engine --features llama-cpp
+
+      # The GGUF provider is the reason the engine layer is reused rather than
+      # re-implemented, so it is checked against the real linked engine here: the
+      # job above can only compile it with the mock engine in its place. No
+      # weights are downloaded — the adapter's own tests inject an engine and the
+      # build path only asks whether one is available.
+      - name: Clippy (gguf provider)
+        run: cargo clippy -p agent-providers --all-targets --features llama-cpp -- -D warnings
+
+      - name: Gguf provider tests
+        run: cargo test -p agent-providers --features llama-cpp
+
+      - name: Clippy (agent CLI)
+        run: cargo clippy -p agent-cli --all-targets --features llama-cpp -- -D warnings
 
       # The desktop shell needs Tauri's system libraries, which macOS has and a
       # plain Ubuntu runner does not.

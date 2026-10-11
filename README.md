@@ -82,7 +82,7 @@ warning naming both numbers, when it asks for more than the host has.
   it — Mock answers rather than the app failing to start. That is deliberate.
 - **`candle` is an adapter without a runner.** The feature compiles the seam and
   clearly reports that it cannot serve a request, so it never displaces Mock.
-- **The coding agent is a working CLI with two providers.** A second binary,
+- **The coding agent is a working CLI.** A second binary,
   `smoll`, lives in `crates/agent-cli` and runs a task end to end today:
   `smoll init` writes a starter config, `smoll task "…"` gathers repository
   context, proposes a plan, asks the provider for tool calls, gates every call
@@ -98,10 +98,14 @@ warning naming both numbers, when it asks for more than the host has.
   `patch_file`, `list_dir`, `search_files`, `search_text`, `run_command`,
   `git_status` and `git_diff` — see
   [crates/agent-core/tests/loop_runs.rs](crates/agent-core/tests/loop_runs.rs)
-  for the behaviours that are actually proven. Two providers answer: the scripted
-  mock and the echo inspector. The GGUF and OpenAI-compatible adapters return an
-  error naming the missing piece rather than falling back to the mock, and there
-  is no TUI, no `chat` and no session picker yet.
+  for the behaviours that are actually proven. Two providers answer in a default
+  build: the scripted mock and the echo inspector. A third, `type = "gguf"`,
+  loads a model file through this repository's own engine layer — the same llama.cpp
+  integration the desktop app uses — and answers from its weights, but only in a
+  binary built with `--features llama-cpp`; without it, and for the
+  OpenAI-compatible adapter, it returns an error naming the missing piece rather
+  than falling back to the mock. There is no TUI, no `chat` and no session picker
+  yet. See [docs/providers.md](docs/providers.md).
 
 We deliberately did not rewrite llama.cpp. The engine is an abstraction
 (`Engine` + `EngineManager`) with one integration point per backend, so each

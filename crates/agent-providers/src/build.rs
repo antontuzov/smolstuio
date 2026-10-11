@@ -16,6 +16,9 @@ use crate::error::ProviderError;
 use crate::mock::MockProvider;
 use crate::provider::{Capabilities, Provider};
 
+#[cfg(feature = "gguf")]
+use crate::gguf::GgufProvider;
+
 /// Build the provider a `[providers.<name>]` section names.
 ///
 /// `name` becomes the provider's own name, so a run's log, the config file and
@@ -31,14 +34,14 @@ pub fn build(name: &str, config: &ProviderConfig) -> Result<Arc<dyn Provider>, P
         ProviderKind::Echo => Ok(Arc::new(
             EchoProvider::named(name).with_capabilities(capabilities),
         )),
-        ProviderKind::Gguf => Err(if cfg!(feature = "gguf") {
-            ProviderError::not_supported(
-                "gguf",
-                Some("the engine adapter for a local GGUF file is the next step".to_owned()),
-            )
-        } else {
-            ProviderError::not_compiled("gguf", "gguf")
-        }),
+        // A gguf section either gets its model or gets the reason it cannot: the
+        // feature, or the file. Never an answer from a script.
+        #[cfg(feature = "gguf")]
+        ProviderKind::Gguf => {
+            GgufProvider::new(name, config).map(|provider| Arc::new(provider) as Arc<dyn Provider>)
+        }
+        #[cfg(not(feature = "gguf"))]
+        ProviderKind::Gguf => Err(ProviderError::not_compiled("gguf", "gguf")),
         ProviderKind::OpenaiCompatible => Err(if cfg!(feature = "openai-compatible") {
             ProviderError::not_supported(
                 "openai-compatible",
@@ -137,20 +140,79 @@ mod tests {
         assert_eq!(provider.capabilities().context_tokens, 2048);
     }
 
+    /// The default build has no engine that can run a GGUF file, so the honest
+    /// answer is the cargo flag — and it is never the mock.
+    #[cfg(not(feature = "gguf"))]
     #[tokio::test]
-    async fn a_local_model_file_is_not_silently_replaced_by_a_script() {
+    async fn a_local_model_file_is_named_by_the_feature_that_would_run_it() {
         let mut config = config(ProviderKind::Gguf);
         config.path = Some("/models/qwen2.5-1.5b-instruct-q4_k_m.gguf".to_owned());
         let error = build("local", &config)
             .err()
-            .expect("the adapter does not exist yet");
+            .expect("this build has no engine to run it with");
         let message = error.to_string();
         assert!(message.contains("gguf"), "{message}");
         assert!(
-            message.contains("--features") || message.contains("next step"),
+            message.contains("--features"),
             "the error should say what to do: {message}"
         );
         assert!(!error.retryable(), "asking again does not build an adapter");
+    }
+
+    /// Once the adapter is compiled, a gguf section either gets the engine or
+    /// gets the reason it did not. Both answers name something; neither is a
+    /// script.
+    #[cfg(feature = "gguf")]
+    #[tokio::test]
+    async fn a_local_model_file_gets_the_engine_or_the_reason_never_a_script() {
+        use std::path::Path;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("qwen2.5-1.5b-instruct-q4_k_m.gguf");
+        let config_at = |path: &Path| ProviderConfig {
+            path: Some(path.to_string_lossy().into_owned()),
+            ..config(ProviderKind::Gguf)
+        };
+
+        // Whichever piece is missing first — the engine in the build, or the file
+        // on disk — the answer names it, and never hands back a script.
+        let error = build("local", &config_at(&path))
+            .err()
+            .expect("no file at that path yet");
+        let message = error.to_string();
+        assert!(
+            message.contains("qwen2.5-1.5b") || message.contains("llama-cpp"),
+            "the refusal says what is missing: {message}"
+        );
+
+        std::fs::write(&path, b"weights are not in here").expect("a file to point at");
+        match build("local", &config_at(&path)) {
+            Ok(provider) => {
+                if !cfg!(feature = "llama-cpp") {
+                    panic!(
+                        "only a linked engine may answer, and this build has none: {}",
+                        provider.name()
+                    );
+                }
+                assert_eq!(provider.name(), "local");
+                assert_eq!(
+                    provider.model(),
+                    Some("qwen2.5-1.5b-instruct-q4_k_m"),
+                    "the run is told which file is answering"
+                );
+                assert!(
+                    !provider.capabilities().tool_calling,
+                    "a GGUF file is not assumed able to hold a tool list"
+                );
+            }
+            Err(error) => {
+                if cfg!(feature = "llama-cpp") {
+                    panic!("a linked engine should have been built: {error}");
+                }
+                assert!(error.to_string().contains("llama-cpp"), "{error}");
+                assert!(!error.retryable(), "{error}");
+            }
+        }
     }
 
     #[tokio::test]

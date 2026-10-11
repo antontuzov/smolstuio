@@ -4,11 +4,12 @@
 //! plus whatever calls it recognises — one answer per step, so a step can be
 //! retried, timed out and logged as a unit.
 //!
-//! Behind the trait today sit the scripted mock and the echo provider, which is
-//! what every test in this workspace runs against. The GGUF adapter onto this
-//! repository's engine layer and the OpenAI-compatible HTTP client for Ollama,
-//! LM Studio, vLLM, TGI, `llama-server` and this repo's own `smoll serve` are
-//! the next step; asking for one before it is built returns
+//! Behind the trait today sit the scripted mock, the echo provider and the GGUF
+//! adapter onto this repository's engine layer — the last one needs the `gguf`
+//! feature, and `llama-cpp` on top of it to run weights rather than refuse. Every
+//! test in this workspace runs against the mock and the echo. The OpenAI-compatible
+//! HTTP client for Ollama, LM Studio, vLLM, TGI, `llama-server` and this repo's own
+//! `smoll serve` is the next step; asking for a provider before it is built returns
 //! [`ProviderError::not_supported`] rather than a silent fallback to the mock,
 //! because an agent that quietly answers from a script in place of your model is
 //! worse than one that stops.
@@ -44,6 +45,8 @@
 mod build;
 mod echo;
 mod error;
+#[cfg(feature = "gguf")]
+mod gguf;
 mod mock;
 mod parse;
 mod provider;
@@ -51,6 +54,8 @@ mod provider;
 pub use build::{build, capabilities_of};
 pub use echo::EchoProvider;
 pub use error::{ProviderError, ProviderResult};
+#[cfg(feature = "gguf")]
+pub use gguf::GgufProvider;
 pub use mock::{MockProvider, Reply, UNSCRIPTED};
 pub use parse::{repair, tool_calls, tool_calls_among};
 pub use provider::{Capabilities, Completion, CompletionRequest, Provider, StopReason, ToolSchema};

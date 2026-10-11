@@ -86,6 +86,12 @@ context_length = 8192
 Optional keys on any provider: `api_key_env`, `token_env`, `device`,
 `context_length`, `temperature`, `top_p`, `max_tokens`, `stop`.
 
+Which of these a given binary can actually run is [providers.md](providers.md):
+`gguf` answers from its weights only in a build made with `--features
+llama-cpp`, and `openai_compatible` is the next adapter to be written. Asking
+for one this build does not have is an error naming the missing piece, never a
+silent substitution.
+
 `api_key_env` and `token_env` are **environment variable names**, not keys. A
 value containing `=` or starting with `sk-` is refused, because the config file
 is meant to be safe to commit.

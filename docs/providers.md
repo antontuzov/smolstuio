@@ -26,7 +26,7 @@ sends anything anywhere that the configuration did not name.
 | --- | --- | --- |
 | `mock` | none, always compiled | **built** — scripted replies, records every request |
 | `echo` | none, always compiled | **built** — renders the prompt back so you can read the exact context |
-| `gguf` | `gguf`, `llama-cpp` | **not built** — `build()` returns `ProviderError::not_supported`; the engine adapter is the next step |
+| `gguf` | `gguf`, `llama-cpp` | **built** — loads the configured file through this repository's own engine layer and answers from its weights. Without `llama-cpp` in the build it refuses and names that flag; it never answers from the mock. |
 | `openai_compatible` | `openai-compatible` | **not built** — the HTTP client for Ollama, LM Studio, vLLM, TGI, `llama-server` and `smoll serve` is next |
 | `candle`, `onnx`, `huggingface` | none | **not built**, and no feature claims otherwise |
 
@@ -37,14 +37,15 @@ about your repository. `agent_providers::build` would rather stop and say which
 adapter is missing:
 
 ```rust
+// From a default build, which has no engine adapter compiled in at all.
 let config = ProviderConfig::new(ProviderKind::Gguf);
 let error = build("local", &config).unwrap_err();
 // gguf providers need this build to be compiled with --features gguf
 assert!(!error.retryable());
 ```
 
-That message is what a run prints today, with the provider's own name in front
-of it:
+That message is what a default build prints, with the provider's own name in
+front of it:
 
 ```console
 $ smoll task --yes "rename the helper"
@@ -183,6 +184,71 @@ context_length = 4096
 let provider = build("inspector", &config)?;
 print!("{}", provider.complete(&request).await?.text);
 ```
+
+## GGUF: the provider that reads your own file
+
+`GgufProvider` is an adapter, not a second inference engine. Everything hard —
+loading the weights, the model's chat template, its tokenizer, the decode loop,
+offloading layers to the GPU — is done by `smollm-engine`'s llama.cpp backend,
+the same one the desktop app and `smollm run` use. The adapter's job is the
+translation between the loop's request and the engine's, and the bookkeeping
+around it.
+
+```toml
+[providers.local]
+type = "gguf"
+path = "~/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+# context_length, temperature, top_p, max_tokens, stop and device are all
+# optional; each one the file can answer for itself is left to the file.
+device = "metal"
+```
+
+```console
+$ cargo build -p agent-cli --bin smoll --features llama-cpp --release
+$ smoll task "rename the helper in src/config.rs and update its callers"
+```
+
+What it will not do is answer from something else:
+
+- A build without `llama-cpp` in it says so and names the flag. `--features
+  gguf` alone compiles the adapter against the engine layer, which is how its own
+  tests run: they inject the mock engine by hand, and a `type = "gguf"` section
+  read from a config file never gets one.
+- A `path` that is not a readable file is refused when the provider is built,
+  before any weights are touched, and the error keeps the path in it.
+
+The details that decide whether a run is worth reading:
+
+- **One load per run.** The model is read on the first step, off the async
+  executor so a multi-gigabyte mmap cannot stall the TUI's input pump, and every
+  later step reuses that handle. `smoll doctor` builds providers too, which is
+  why loading is lazy rather than part of `build()`.
+- **The file's own window.** `context_length` from the config is a ceiling until
+  the model is loaded; after that the loaded handle's context — which llama.cpp
+  already capped at what the weights were trained with — is what the loop trims
+  against.
+- **Numbers the model actually paid.** `usage` comes from llama.cpp's tokenizer,
+  not a character estimate. The pre-check that a prompt fits uses the same
+  tokenizer and the engine's own `+ 1` arithmetic (one position has to stay free
+  for the first sampled token), so an over-long prompt is `ContextTooLong {
+  wanted, available }` with real numbers instead of an error in prose.
+- **A stopped run stops the decoder.** Dropping the stream — the loop's timeout,
+  or a step budget that ends the run — makes llama.cpp's decode worker finish
+  between tokens, because it notices its consumer went away. A caller that owns
+  the engine's cancel token (`GgufProvider::with_cancel`) gets `Cancelled` out of
+  the answer loop instead, which is not retryable: a run a human stopped is not a
+  run that failed. The `Provider` trait has no way to pass that token yet, so
+  today only a program that builds the adapter itself can pull that wire — the
+  TUI's Esc key is the caller it is there for.
+- **`tool_calling` is false, on purpose.** No GGUF file has said it can hold a
+  tool list, and the adapter does not read calls out of a template. The loop
+  therefore asks for prose with a fenced JSON block and parses that back, which
+  is the path most 1.5B chat models answer through anyway. `streaming` is false
+  for the same reason: the trait has one answer per step, so a token-by-token
+  engine still reports one finished answer.
+- **No seed unless you ask.** The default coding preset's fixed seed is dropped,
+  because a repair round with a fixed seed re-asks the same question and gets the
+  same truncated answer back.
 
 ## Errors, and whether asking again is sensible
 

@@ -179,12 +179,16 @@ fn an_uncompiled_provider_is_named_rather_than_replaced_by_a_script() {
     .expect("write");
 
     // `task` refuses rather than answering from the mock the config did not ask
-    // for, and says which feature would build the one it did.
+    // for. In a build without the engine the refusal names the cargo flag; in one
+    // with it, it names the file that is not there. Both say what is missing.
     let task = smoll(dir.path(), &["task", "--yes", "anything"]);
     assert_eq!(task.status.code(), Some(2), "{}", text(&task));
     let said = text(&task);
     assert!(said.contains("gguf"), "{said}");
-    assert!(said.contains("--features"), "it says what to do: {said}");
+    assert!(
+        said.contains("--features") || said.contains("small.gguf"),
+        "the refusal should say what to do: {said}"
+    );
 
     // `doctor` finds the same thing and leaves the code a CI job reads.
     let doctor = smoll(dir.path(), &["doctor"]);

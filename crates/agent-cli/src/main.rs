@@ -43,9 +43,11 @@ use crate::terminal::{Printer, Terminal};
                   It answers from a model you run locally; nothing about your code leaves the \
                   machine unless you configure a remote provider.\n\n\
                   Build status: the loop, the nine default tools, the sandbox, the audit log and \
-                  the session record all work end to end. The only providers that answer today \
-                  are the scripted mock and the echo inspector — asking for a GGUF or an \
-                  HTTP-compatible server says so rather than falling back to a script."
+                  the session record all work end to end. In a default build the providers that \
+                  answer are the scripted mock and the echo inspector; a local .gguf file answers \
+                  from its own weights once the binary is built with --features llama-cpp, and an \
+                  HTTP-compatible server is the next step. Asking for a provider this build cannot \
+                  run says so rather than falling back to a script."
 )]
 struct Cli {
     /// Run as if started in DIR, which is how a script points the agent at a
