@@ -9,10 +9,11 @@
 //!
 //! This crate owns the implementations and nothing about the agent's reasoning:
 //! a tool never decides whether it should have been called, and cannot widen
-//! what it is allowed to touch. Seven of the nine tools read. The two that write
-//! — `write_file` and `patch_file` — delegate the diff and the rollback to
-//! `agent-repo`, and record what they replaced in [`Context::rollback`] so a run
-//! that went wrong can be undone.
+//! what it is allowed to touch. Seven of the eleven tools read, and one runs a
+//! program. The three that change the tree — `write_file`, `patch_file` and
+//! `delete_file` — delegate the diff and the rollback to `agent-repo`, and record
+//! what they replaced in [`Context::rollback`] so a run that went wrong can be
+//! undone. `delete_file` refuses anything that journal could not put back.
 //!
 //! ```
 //! use agent_tools::{Context, Registry, ToolCall};

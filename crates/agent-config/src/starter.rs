@@ -93,6 +93,12 @@ denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 [tools.search_text]
 enabled = true
 
+# `delete_file` is the one default tool that removes something. It always asks a
+# person, whatever the approval mode, and `smoll rollback` puts the file back
+# from what the run recorded. To take it off the table for a project:
+# [tools.delete_file]
+# enabled = false
+
 [privacy]
 telemetry = false
 redact_secrets = true

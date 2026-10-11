@@ -20,7 +20,7 @@ use agent_core::{
 };
 use agent_providers::{Capabilities, MockProvider, Reply};
 use agent_sandbox::Policy;
-use agent_tools::{Context, Registry};
+use agent_tools::{Context, Registry, ToolStatus};
 use smollm_core::chat::CancelToken;
 
 /// A workspace with these files in it, deleted when the test ends.
@@ -42,7 +42,7 @@ fn read(dir: &TempDir, name: &str) -> String {
     })
 }
 
-/// An agent over the nine default tools, with the mock as its model.
+/// An agent over the eleven default tools, with the mock as its model.
 fn agent(provider: Arc<MockProvider>, ctx: Context) -> Agent {
     Agent::new(provider, Registry::with_defaults(), ctx)
 }
@@ -300,6 +300,81 @@ async fn one_persons_answer_carries_the_rest_of_the_run() {
     assert_eq!(read(&dir, "a.rs"), "fn a2() {}\n");
     assert_eq!(read(&dir, "b.rs"), "fn b2() {}\n");
     assert_eq!(session.touched.len(), 2);
+}
+
+/// The claim `delete_file` makes in its own description: it asks a person, and
+/// `smoll rollback` puts the file back. Both halves are what a reviewer of a
+/// destructive tool needs to see proven, over the same registry the binary uses.
+#[tokio::test]
+async fn a_deletion_is_asked_about_and_the_rollback_puts_the_file_back() {
+    let dir = repo(&[("notes.md", "old text\n"), ("keep.rs", "fn keep() {}\n")]);
+    let approver = Arc::new(Scripted::yes());
+    let provider = scripted([
+        Reply::call("delete_file", json!({"path": "notes.md"})),
+        Reply::text("Removed the stale note."),
+    ]);
+    let ctx = Context::new(dir.path());
+    let mut agent = agent(provider, ctx.clone()).with_approver(approver.clone());
+    let session = finished(agent.run("delete the stale note").await);
+
+    assert_eq!(
+        approver.times_asked(),
+        1,
+        "a deletion is never run on the agent's own say-so"
+    );
+    assert!(
+        approver.asks()[0].summary.contains("delete_file"),
+        "a person is told which tool wants it: {}",
+        approver.asks()[0].summary
+    );
+    assert!(
+        !dir.path().join("notes.md").exists(),
+        "the one file asked about went"
+    );
+    assert!(dir.path().join("keep.rs").is_file(), "and only that one");
+    assert_eq!(session.touched.len(), 1, "{:?}", session.touched);
+
+    let restored = ctx.rollback();
+    assert_eq!(restored.len(), 1, "{restored:?}");
+    assert_eq!(
+        read(&dir, "notes.md"),
+        "old text\n",
+        "the run can undo what it deleted"
+    );
+}
+
+#[tokio::test]
+async fn a_deletion_is_refused_rather_than_asked_when_nothing_may_be_removed() {
+    let dir = repo(&[("notes.md", "old text\n")]);
+    let ctx = Context::new(dir.path())
+        .with_policy(Policy::new(dir.path()).with_approval(ApprovalMode::SuggestOnly));
+    let provider = scripted([
+        Reply::call("delete_file", json!({"path": "notes.md"})),
+        Reply::text("It is still there; this mode removes nothing."),
+    ]);
+    let mut agent = agent(provider, ctx).autoapprove();
+    let session = finished(agent.run("delete the note").await);
+
+    assert!(
+        dir.path().join("notes.md").is_file(),
+        "a mode that writes nothing deletes nothing"
+    );
+    assert!(session.touched.is_empty(), "{:?}", session.touched);
+    let refused = session
+        .events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolFinished { result } => match &result.status {
+                ToolStatus::Refused { reason } => Some(reason.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("the model is told why its call did not run");
+    assert!(
+        refused.contains("does not let anything be removed"),
+        "{refused}"
+    );
 }
 
 #[tokio::test]

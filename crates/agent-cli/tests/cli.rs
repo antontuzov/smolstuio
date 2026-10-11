@@ -313,7 +313,9 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
         "read_file",
         "write_file",
         "patch_file",
+        "delete_file",
         "search_text",
+        "search_symbols",
         "run_command",
         "git_status",
     ] {
@@ -323,12 +325,16 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
         stdout.contains("prompt tokens"),
         "a small-model agent has to say what the tool list costs: {stdout}"
     );
+    assert!(
+        stdout.contains("destructive"),
+        "the one class a person should not have to guess at is in the listing:\n{stdout}"
+    );
 
     let machine = smoll(dir.path(), &["tools", "--json"]);
     let value: serde_json::Value =
         serde_json::from_slice(&machine.stdout).expect("valid json for tools --json");
     let rows = value["tools"].as_array().expect("a list");
-    assert_eq!(rows.len(), 9, "{rows:?}");
+    assert_eq!(rows.len(), 11, "{rows:?}");
     assert!(
         rows.iter()
             .all(|row| row["permission"].is_string() && row["enabled"].is_boolean()),
@@ -399,7 +405,7 @@ fn a_switched_off_tool_is_listed_and_marked() {
         "a tool that is off is still shown, so a person can switch it on:\n{stdout}"
     );
     assert!(
-        stdout.contains("8 of 9 tool(s) offered"),
+        stdout.contains("10 of 11 tool(s) offered"),
         "and the count says so: {stdout}"
     );
 }

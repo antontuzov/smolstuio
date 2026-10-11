@@ -187,3 +187,8 @@ the token count, and the journal of what each write replaced. `smoll review`
 shows one of those records — the newest, unless you give `--id` — and `smoll
 rollback` puts the recorded files back the way the run found them. A file you
 edited afterwards is named and left alone rather than overwritten again.
+
+A file `delete_file` removed is put back from the same journal, which is why that
+tool refuses a binary or an over-large file instead of removing it: the journal
+holds text, and a deletion it cannot undo is a deletion that should not be
+offered as if it could.

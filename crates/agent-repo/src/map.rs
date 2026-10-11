@@ -237,6 +237,26 @@ pub fn is_test(path: &str) -> bool {
 /// Only column-zero lines count, which is what makes this cheap and also what
 /// makes it miss a method: a table of contents lists chapters, not paragraphs.
 pub fn declarations(text: &str, language: Language, limit: usize) -> Vec<String> {
+    declarations_at(text, language, limit)
+        .into_iter()
+        .map(|declaration| declaration.name)
+        .collect()
+}
+
+/// One declaration, with enough of it to be useful in a listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declaration {
+    pub name: String,
+    /// 1-based, the same count `read_file` and `search_text` print.
+    pub line: usize,
+    /// The whole line it was found on, trimmed: for code this is the signature.
+    pub text: String,
+}
+
+/// [`declarations`] with the line each name lives on, which is what a tool that
+/// points a model at a definition needs and a repo map that only names files
+/// does not.
+pub fn declarations_at(text: &str, language: Language, limit: usize) -> Vec<Declaration> {
     let prefixes: &[&str] = match language {
         Language::Rust => &[
             "pub fn ",
@@ -272,13 +292,13 @@ pub fn declarations(text: &str, language: Language, limit: usize) -> Vec<String>
         // Prose and data get their own treatment: a heading is a name, a TOML
         // table header is a name, and neither looks like a declaration.
         return match language {
-            Language::Markdown => heading_names(text, limit),
-            Language::Toml => table_names(text, limit),
+            Language::Markdown => headings_at(text, limit),
+            Language::Toml => tables_at(text, limit),
             _ => Vec::new(),
         };
     }
-    let mut names: Vec<String> = Vec::new();
-    for line in text.lines() {
+    let mut names: Vec<Declaration> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
         if names.len() >= limit {
             break;
         }
@@ -290,8 +310,12 @@ pub fn declarations(text: &str, language: Language, limit: usize) -> Vec<String>
                 if let Some(name) = identifier(rest) {
                     // `mod tests` is not surface; the file and directory are
                     // already marked as tests by `is_test`.
-                    if name != "tests" && !names.iter().any(|known| known == &name) {
-                        names.push(name);
+                    if name != "tests" && !names.iter().any(|known| known.name == name) {
+                        names.push(Declaration {
+                            name,
+                            line: index + 1,
+                            text: line.trim_end().to_owned(),
+                        });
                     }
                 }
                 break;
@@ -313,24 +337,41 @@ fn identifier(text: &str) -> Option<String> {
     Some(name)
 }
 
-fn heading_names(text: &str, limit: usize) -> Vec<String> {
+fn headings_at(text: &str, limit: usize) -> Vec<Declaration> {
     text.lines()
-        .filter_map(|line| line.strip_prefix('#'))
-        .map(|title| title.trim_start_matches(['#', ' ']).trim())
-        .filter(|title| !title.is_empty())
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let title = line.strip_prefix('#')?;
+            Some((index + 1, line, title.trim_start_matches(['#', ' ']).trim()))
+        })
+        .filter(|(_, _, title)| !title.is_empty())
         .take(limit)
-        .map(ToOwned::to_owned)
+        .map(|(line, text, title)| Declaration {
+            name: title.to_owned(),
+            line,
+            // The line as the file spells it, so a listing of a Markdown file
+            // reads `# Title` and a model can see which kind of line it found.
+            text: text.trim_end().to_owned(),
+        })
         .collect()
 }
 
-fn table_names(text: &str, limit: usize) -> Vec<String> {
+fn tables_at(text: &str, limit: usize) -> Vec<Declaration> {
     text.lines()
-        .filter_map(|line| line.trim().strip_prefix('['))
-        .filter_map(|rest| rest.strip_suffix(']'))
-        .map(|name| name.trim())
-        .filter(|name| !name.contains(['[', ']', '=', '.']))
+        .enumerate()
+        .filter_map(|(index, line)| {
+            line.trim()
+                .strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+                .map(|name| (index + 1, line.trim(), name.trim()))
+        })
+        .filter(|(_, _, name)| !name.contains(['[', ']', '=', '.']))
         .take(limit)
-        .map(ToOwned::to_owned)
+        .map(|(line, text, name)| Declaration {
+            name: name.to_owned(),
+            line,
+            text: text.to_owned(),
+        })
         .collect()
 }
 
@@ -733,6 +774,57 @@ mod tests {
         assert_eq!(
             declarations("pub fn a() {}\npub fn b() {}", Language::Rust, 1),
             vec!["a"]
+        );
+    }
+
+    /// The line number is the whole reason a tool can call this "where X lives":
+    /// a name with no address is a second search away from being useless.
+    #[test]
+    fn a_declaration_carries_the_line_and_the_line_itself() {
+        let text = "use std::fmt;\n\npub struct Plan {\n    pub goal: String,\n}\n\npub fn render(plan: &Plan) -> String {\n    plan.goal.clone()\n}\n";
+        let found = declarations_at(text, Language::Rust, 10);
+        assert_eq!(
+            found
+                .iter()
+                .map(|declaration| (declaration.name.as_str(), declaration.line))
+                .collect::<Vec<_>>(),
+            vec![("Plan", 3), ("render", 7)],
+            "{found:?}"
+        );
+        assert_eq!(
+            found[1].text, "pub fn render(plan: &Plan) -> String {",
+            "the signature is what a model reads to decide whether this is the one"
+        );
+
+        // Prose gets a line too, and the heading keeps its `##` in the text.
+        let notes = declarations_at("# Title\n\n## Sub\n\ntext\n", Language::Markdown, 10);
+        assert_eq!(
+            notes
+                .iter()
+                .map(|declaration| (declaration.name.as_str(), declaration.line))
+                .collect::<Vec<_>>(),
+            vec![("Title", 1), ("Sub", 3)]
+        );
+
+        let tables = declarations_at(
+            "[package]\nname = \"x\"\n[dependencies]\n",
+            Language::Toml,
+            10,
+        );
+        assert_eq!(
+            tables
+                .iter()
+                .map(|declaration| (
+                    declaration.name.as_str(),
+                    declaration.line,
+                    declaration.text.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("package", 1, "[package]"),
+                ("dependencies", 3, "[dependencies]")
+            ],
+            "the text is the table header as the file spells it"
         );
     }
 

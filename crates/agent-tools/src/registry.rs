@@ -49,13 +49,13 @@ impl Registry {
         Self::default()
     }
 
-    /// The nine tools a first run can use, all of them enabled.
+    /// The eleven tools a first run can use, all of them enabled.
     pub fn with_defaults() -> Self {
         use crate::filesystem::{ListDir, ReadFile};
         use crate::git::{GitDiff, GitStatus};
-        use crate::search::{SearchFiles, SearchText};
+        use crate::search::{SearchFiles, SearchSymbols, SearchText};
         use crate::shell::RunCommand;
-        use crate::write::{PatchFile, WriteFile};
+        use crate::write::{DeleteFile, PatchFile, WriteFile};
 
         let mut registry = Self::new();
         for tool in [
@@ -63,11 +63,13 @@ impl Registry {
             Box::new(ListDir),
             Box::new(SearchText),
             Box::new(SearchFiles),
+            Box::new(SearchSymbols),
             Box::new(GitStatus),
             Box::new(GitDiff),
             Box::new(RunCommand),
             Box::new(WriteFile),
             Box::new(PatchFile),
+            Box::new(DeleteFile),
         ] {
             registry.register(tool);
         }
@@ -326,11 +328,12 @@ mod tests {
     }
 
     #[test]
-    fn the_default_set_is_the_nine_tools_a_first_run_can_use() {
+    fn the_default_set_is_the_eleven_tools_a_first_run_can_use() {
         let registry = Registry::with_defaults();
         assert_eq!(
             registry.names(),
             vec![
+                "delete_file",
                 "git_diff",
                 "git_status",
                 "list_dir",
@@ -338,6 +341,7 @@ mod tests {
                 "read_file",
                 "run_command",
                 "search_files",
+                "search_symbols",
                 "search_text",
                 "write_file",
             ]
@@ -345,7 +349,7 @@ mod tests {
         let cost = registry.token_cost();
         assert!(cost > 0, "offering a tool costs prompt tokens");
         assert!(
-            cost < 3_000,
+            cost < 4_000,
             "the whole list is {cost} tokens of the window"
         );
     }

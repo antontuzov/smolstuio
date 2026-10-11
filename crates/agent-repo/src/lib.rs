@@ -18,7 +18,7 @@ pub mod patch;
 pub mod project;
 
 pub use index::{FileEntry, Index, Language, AGENT_IGNORE_FILE, MAX_READ_BYTES};
-pub use map::{Candidate, RepoMap, Scored};
+pub use map::{declarations_at, Candidate, Declaration, RepoMap, Scored};
 pub use patch::{
     apply, diff, diff_against_disk, plan, restore_all, stats, touched_paths, write, Kind,
     PatchError, Planned, Restored, Snapshot, Stat,
