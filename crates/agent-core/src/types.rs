@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use agent_sandbox::Permission;
-use agent_tools::ToolResult;
+use agent_tools::{StepMark, ToolResult};
 use serde::{Deserialize, Serialize};
 use smollm_core::chat::{approx_token_count, TokenUsage};
 use uuid::Uuid;
@@ -38,6 +38,21 @@ pub enum StepStatus {
 impl StepStatus {
     pub fn is_finished(self) -> bool {
         matches!(self, Self::Done | Self::Failed | Self::Skipped)
+    }
+}
+
+/// The state a model marked one of its own steps as, read back from the character
+/// the plan is rendered with. The two vocabularies are the same five states on
+/// purpose: a model copies what its prompt showed it.
+impl From<StepMark> for StepStatus {
+    fn from(mark: StepMark) -> Self {
+        match mark {
+            StepMark::Pending => Self::Pending,
+            StepMark::Running => Self::Running,
+            StepMark::Done => Self::Done,
+            StepMark::Failed => Self::Failed,
+            StepMark::Skipped => Self::Skipped,
+        }
     }
 }
 
@@ -132,7 +147,8 @@ pub struct ContextBundle {
     /// bodies. A small model spends its budget faster on paths than on sense.
     pub repo_map: String,
     pub files: Vec<ContextFile>,
-    /// Prior decisions and errors worth repeating, as short lines.
+    /// What an earlier run left for this one, kept by `memory_store` and read back
+    /// on the first turn. One short line each.
     pub notes: Vec<String>,
 }
 

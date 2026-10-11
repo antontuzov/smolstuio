@@ -56,17 +56,23 @@ the repository — about a quarter to the repo map, the rest to the file bodies 
 first turn is handed — and the map keeps a floor even when the window leaves
 nothing to spare, because a model with no table of contents assumes the
 repository is the three files it was shown. `smoll tools` prints what offering
-the twenty default tools costs on every step of a run.
+the twenty-four default tools costs on every step of a run: 3217 tokens together.
 
 That cost is counted whether a model is shown the tools as a native block or has
 them written into its instructions, so the number a run reports is the number the
-window has to hold, answer room included. With all twenty on, a first step wants
-about 3550 tokens of a model that is handed the block and about 4300 of one that
-has to be told in prose — before it has seen a single file, which is more than a
-4096-token model has. A run that still does not fit after dropping every file and
-every line of the map stops with `context tokens needed`, and the hint under it
-names the part `smoll tools` can give back. On this machine the same repository
-answered at 3072 tokens with eight tools switched off and 1807 offered.
+window has to hold, answer room included. Measured on this machine against a
+two-file repository, a first step wants 3743 tokens of a model that is handed the
+tools as a native block and 2250 of one that has to be told them in prose — the
+prose list is one sentence per tool where the block is a JSON schema per tool, so
+for the smallest windows the *less* capable provider is the one that gets room
+for file bodies. At 4096 tokens a native-block model gets the rules, the whole
+tool list, the plan and the repo map, and no file bodies at all: it has to ask
+for the file it wants, which is why `read_file` is the cheapest tool to keep.
+Switching eight of them off (`git_status`, `git_diff`, `git_log`, `git_show`,
+`patch_file`, `task_plan_update`, `memory_recall`, `check_run`) leaves 16 offered
+and 2126 tokens of list. A run that still does not fit after dropping every file
+and every line of the map stops with `context tokens needed`, and the hint under
+it names the part `smoll tools` can give back.
 
 ### Approval modes
 
@@ -160,6 +166,11 @@ warning: [tools.shell] gates nothing: no tool this build registers has that
 This is checked in the CLI rather than in the parser, because the parser does not
 know the tool list and must not have to.
 
+For what each of the twenty-four tools actually is — its permission class, where
+its arguments come from, what it may touch, and how many prompt tokens offering
+it costs on every step of a run — see [tools.md](tools.md). This file is only
+about how a run is configured.
+
 ## `[privacy]`
 
 ```toml
@@ -222,3 +233,9 @@ A file `delete_file` removed is put back from the same journal, which is why tha
 tool refuses a binary or an over-large file instead of removing it: the journal
 holds text, and a deletion it cannot undo is a deletion that should not be
 offered as if it could.
+
+The third record is `.smoll/memory.jsonl`: the short sentences `memory_store`
+kept for the runs after this one, each one secret-masked before it reached disk
+and read back, newest last, onto the next run's first turn. `smoll doctor` reports
+how many are waiting. Rollback leaves it alone on purpose — a run that was wrong
+about the plan is still worth remembering.

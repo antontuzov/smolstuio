@@ -9,7 +9,7 @@
 //!
 //! This crate owns the implementations and nothing about the agent's reasoning:
 //! a tool never decides whether it should have been called, and cannot widen
-//! what it is allowed to touch. Nine of the twenty tools read. Six run a
+//! what it is allowed to touch. Twelve of the twenty-four tools read. Six run a
 //! program: `run_command` runs whatever arguments the model wrote, and the five
 //! project commands — `test_run`, `check_run`, `lint_run`, `format_run` and
 //! `build_run` — run the argv the repository's own manifests declare and take no
@@ -23,7 +23,11 @@
 //! two that change what git has recorded — `git_add` and `git_commit` — are
 //! writes too, so an approval mode that asks before writing asks before them, and
 //! neither is undone by a rollback: they are git's to undo, and this crate offers
-//! no git command that discards work.
+//! no git command that discards work. `memory_store` is a write for the same
+//! reason, into the one file the workspace keeps for itself, and `smoll rollback`
+//! leaves that note where it put it for the next run. The two plan tools change
+//! only what a run intends, so they are reads: an agent should not have to be
+//! approved to think.
 //!
 //! ```
 //! use agent_tools::{Context, Registry, ToolCall};
@@ -51,6 +55,8 @@ mod call;
 mod context;
 mod filesystem;
 mod git;
+mod memory;
+mod plan;
 mod registry;
 mod schema;
 mod search;
@@ -62,6 +68,14 @@ mod write;
 pub use agent_sandbox::Permission;
 pub use call::{ToolCall, ToolOutput, ToolResult, ToolStatus};
 pub use context::Context;
+pub use memory::{
+    count as notes_kept, recent as recent_notes, MemoryRecall, MemoryStore, Note, MAX_NOTE_CHARS,
+    MEMORY_FILE,
+};
+pub use plan::{
+    authored, PlanDoc, PlannedStep, StepMark, TaskPlanCreate, TaskPlanUpdate, MAX_PLAN_STEPS,
+    MAX_STEP_CHARS,
+};
 pub use registry::{needs_approval, summarise, Registry, ToolInfo};
 pub use tool::{Intent, Tool, ToolDefinition, DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_SECONDS};
 pub use validate::ProjectCommand;

@@ -20,7 +20,7 @@ use agent_core::{
 };
 use agent_providers::{Capabilities, MockProvider, Reply};
 use agent_sandbox::Policy;
-use agent_tools::{Context, Registry, ToolStatus};
+use agent_tools::{Context, Registry, ToolStatus, MEMORY_FILE};
 use smollm_core::chat::CancelToken;
 
 /// A workspace with these files in it, deleted when the test ends.
@@ -42,7 +42,7 @@ fn read(dir: &TempDir, name: &str) -> String {
     })
 }
 
-/// An agent over the twenty default tools, with the mock as its model.
+/// An agent over the twenty-four default tools, with the mock as its model.
 fn agent(provider: Arc<MockProvider>, ctx: Context) -> Agent {
     Agent::new(provider, Registry::with_defaults(), ctx)
 }
@@ -89,7 +89,16 @@ impl Collector {
 
 /// The messages of the first prompt, joined, for asserting on what the model saw.
 fn first_prompt(provider: &MockProvider) -> String {
-    let request = &provider.requests()[0];
+    prompt_at(provider, 0)
+}
+
+/// The messages of the prompt at one step, joined. The plan is rebuilt every
+/// turn, so a later step is how a test reads back what the loop decided.
+fn prompt_at(provider: &MockProvider, step: usize) -> String {
+    let requests = provider.requests();
+    let request = requests
+        .get(step)
+        .unwrap_or_else(|| panic!("the model was asked {step} times at most"));
     request
         .messages
         .iter()
@@ -182,7 +191,22 @@ async fn the_first_prompt_shows_the_map_the_files_and_the_plan() {
         ("notes.md", "old text\n"),
         ("src/lib.rs", "pub fn a() {}\n"),
     ]);
-    let (mut agent, provider) = read_write_summarise(&dir, "new text\n");
+    // A window that can hold the whole offered tool list: twenty-four schemas are
+    // 3217 tokens of the 4096 a floor model advertises, which leaves nothing for a
+    // file body. That shortfall is its own test below; this one is about the shape
+    // of a prompt that has room, so it is given a roomy model.
+    let provider = Arc::new(
+        MockProvider::scripted([
+            Reply::call("read_file", json!({"path": "notes.md"})),
+            Reply::call(
+                "write_file",
+                json!({"path": "notes.md", "content": "new text\n"}),
+            ),
+            Reply::text("Rewrote notes.md."),
+        ])
+        .with_capabilities(Capabilities::basic().with_tool_calling().window(8_192)),
+    );
+    let mut agent = agent(provider.clone(), Context::new(dir.path())).autoapprove();
     finished(agent.run("replace the text in notes.md").await);
 
     let prompt = first_prompt(&provider);
@@ -209,11 +233,44 @@ async fn the_first_prompt_shows_the_map_the_files_and_the_plan() {
 }
 
 #[tokio::test]
+async fn a_window_too_small_for_the_tool_list_runs_on_the_map_instead_of_bodies() {
+    let dir = repo(&[
+        ("notes.md", "old text\n"),
+        ("src/lib.rs", "pub fn a() {}\n"),
+    ]);
+    // The mock's advertised 4096, which is the floor a provider may claim. The
+    // twenty-four schemas leave no room for a body on top of the rules, the map's
+    // floor, a reply and the reserve — and the loop gives up the bodies first,
+    // because a model that has seen the map can still ask for the file it wants.
+    let (mut agent, provider) = read_write_summarise(&dir, "new text\n");
+    let session = finished(agent.run("replace the text in notes.md").await);
+
+    let prompt = first_prompt(&provider);
+    assert!(prompt.contains("Repository map:"), "{prompt}");
+    assert!(prompt.contains("notes.md"), "the file is named: {prompt}");
+    assert!(
+        !prompt.contains("### notes.md") && !prompt.contains("### src/lib.rs"),
+        "and nothing is handed over: {prompt}"
+    );
+    assert_eq!(
+        provider.requests()[0].tools.len(),
+        24,
+        "the whole list is still offered, so asking is still possible"
+    );
+    assert!(
+        warnings(&session).is_empty(),
+        "it plans inside the window instead of overflowing and cutting: {:?}",
+        warnings(&session)
+    );
+    assert_eq!(read(&dir, "notes.md"), "new text\n", "and gets there");
+}
+
+#[tokio::test]
 async fn a_model_that_has_to_be_told_the_tools_in_prose_still_gets_the_map() {
     // The expensive half of the budget: a model with no native tool array is
     // shown every description as sentences, because that list is its only tool
-    // documentation. Twenty of them against a 4096-token window is what used to
-    // leave no room for the repository at all.
+    // documentation. Twenty-four of them against a 4096-token window is what used
+    // to leave no room for the repository at all.
     let dir = repo(&[
         ("notes.md", "old text\n"),
         ("src/lib.rs", "pub fn a() {}\n"),
@@ -770,5 +827,209 @@ async fn a_run_stopped_halfway_leaves_a_record_that_can_undo_it() {
         read(&dir, "notes.md"),
         "old text\n",
         "undoing works from the file, not from the run"
+    );
+}
+
+#[tokio::test]
+async fn what_one_run_remembered_is_on_the_next_ones_first_turn() {
+    let dir = repo(&[("notes.md", "old text\n")]);
+    let first = scripted([
+        Reply::call(
+            "memory_store",
+            json!({"note": "the crate under src is named probe"}),
+        ),
+        Reply::text("Noted it."),
+    ]);
+    let session = finished(
+        agent(first, Context::new(dir.path()))
+            .autoapprove()
+            .run("remember the crate's name")
+            .await,
+    );
+
+    assert!(
+        dir.path().join(MEMORY_FILE).is_file(),
+        "the note outlives the run that wrote it"
+    );
+    let plan = session.plan.as_ref().expect("a plan");
+    assert_eq!(
+        plan.steps[1].status,
+        StepStatus::Skipped,
+        "remembering a sentence is not making the change the plan promised: {}",
+        plan.render()
+    );
+    assert!(
+        !session.events.iter().any(|event| matches!(
+            event,
+            AgentEvent::PlanAdvanced {
+                index: 1,
+                status: StepStatus::Done
+            }
+        )),
+        "and no box about the work was ticked"
+    );
+
+    // The next run is a different process over the same workspace, and it opens
+    // already knowing this.
+    let second = scripted([Reply::text("The crate under src is named probe.")]);
+    finished(
+        agent(second.clone(), Context::new(dir.path()))
+            .autoapprove()
+            .run("what is the crate under src called?")
+            .await,
+    );
+    let prompt = first_prompt(&second);
+    assert!(
+        prompt.contains("Remembered from earlier runs:\n- the crate under src is named probe"),
+        "the note is on the first turn, where it can be used: {prompt}"
+    );
+}
+
+#[tokio::test]
+async fn a_plan_the_model_writes_replaces_the_scaffold_it_was_given() {
+    let dir = repo(&[
+        ("notes.md", "old text\n"),
+        ("src/lib.rs", "pub fn a() {}\n"),
+    ]);
+    let provider = scripted([
+        Reply::call(
+            "task_plan_create",
+            json!({
+                "goal": "rename a to b in src/lib.rs",
+                "steps": ["read src/lib.rs", "write the rename", "check it still compiles"]
+            }),
+        ),
+        Reply::call("read_file", json!({"path": "src/lib.rs"})),
+        Reply::text("Read it, and stopped there."),
+    ]);
+    let session = finished(
+        agent(provider.clone(), Context::new(dir.path()))
+            .autoapprove()
+            .run("rename a to b")
+            .await,
+    );
+
+    let prompt = prompt_at(&provider, 1);
+    assert!(
+        prompt.contains("check it still compiles"),
+        "the next turn works to the model's plan: {prompt}"
+    );
+    assert!(
+        !prompt.contains("Make the change, and diff it"),
+        "replaced, not appended to: {prompt}"
+    );
+
+    let plan = session.plan.as_ref().expect("a plan");
+    assert_eq!(plan.goal, "rename a to b in src/lib.rs", "{plan:?}");
+    assert_eq!(plan.steps.len(), 3, "{}", plan.render());
+    // A read used to tick the scaffold's first box. With six sentences the model
+    // wrote, the loop cannot know which one the read was for, so it guesses none.
+    assert!(
+        plan.steps
+            .iter()
+            .all(|step| step.status == StepStatus::Pending),
+        "the boxes are the model's to fill: {}",
+        plan.render()
+    );
+    assert_eq!(
+        session
+            .events
+            .iter()
+            .filter(|event| matches!(event, AgentEvent::PlanSet { .. }))
+            .count(),
+        2,
+        "the scaffold the run opened with, then the one it wrote"
+    );
+}
+
+#[tokio::test]
+async fn a_plan_copied_back_with_its_boxes_ticked_is_read_as_the_same_plan() {
+    let dir = repo(&[("notes.md", "old text\n")]);
+    let provider = scripted([
+        Reply::call(
+            "task_plan_create",
+            json!({"steps": ["read notes.md", "write the change"]}),
+        ),
+        // What a small model actually does is copy the block it was shown and
+        // change a space to an x, so that shape has to survive the round trip.
+        Reply::call(
+            "task_plan_update",
+            json!({
+                "steps": [
+                    "Goal: rename the helper",
+                    "[x] 1. read notes.md",
+                    "[ ] 2. write the change"
+                ]
+            }),
+        ),
+        Reply::text("Read it, wrote nothing."),
+    ]);
+    let session = finished(
+        agent(provider.clone(), Context::new(dir.path()))
+            .autoapprove()
+            .run("rename the helper")
+            .await,
+    );
+
+    let plan = session.plan.as_ref().expect("a plan");
+    assert_eq!(plan.goal, "rename the helper", "{plan:?}");
+    assert_eq!(
+        plan.steps[0].status,
+        StepStatus::Done,
+        "the tick it copied over is the tick the run has: {}",
+        plan.render()
+    );
+    assert_eq!(plan.steps[1].status, StepStatus::Pending);
+    assert!(
+        prompt_at(&provider, 2).contains("[x] 1. read notes.md"),
+        "and it is shown back that way"
+    );
+}
+
+#[tokio::test]
+async fn a_model_that_never_named_the_check_still_gets_its_work_checked() {
+    // A Makefile project, because the loop runs this command for real and `make
+    // test` on an empty target is the cheapest thing a repository can declare.
+    let dir = repo(&[("Makefile", "test:\n\t@true\n"), ("notes.md", "old text\n")]);
+    let provider = scripted([
+        Reply::call(
+            "task_plan_create",
+            json!({"steps": ["rewrite notes.md", "say what changed"]}),
+        ),
+        Reply::call(
+            "write_file",
+            json!({"path": "notes.md", "content": "new text\n"}),
+        ),
+        Reply::text("Rewrote it."),
+        Reply::text("Rewrote it, and the check passed."),
+    ]);
+    let session = finished(
+        agent(provider, Context::new(dir.path()))
+            .autoapprove()
+            .run("replace the text in notes.md")
+            .await,
+    );
+
+    assert_eq!(read(&dir, "notes.md"), "new text\n", "the change landed");
+    assert!(
+        session.events.iter().any(
+            |event| matches!(event, AgentEvent::ToolRequested { name, arguments }
+                if name == "run_command" && arguments == &json!({"argv": ["make", "test"]}))
+        ),
+        "a plan that dropped the check does not waive it: {:?}",
+        session.events
+    );
+    let plan = session.plan.as_ref().expect("a plan");
+    assert!(
+        plan.steps
+            .iter()
+            .all(|step| step.status == StepStatus::Pending),
+        "and it ticked a box the model never drew: {}",
+        plan.render()
+    );
+    assert!(
+        matches!(session.finished(), Some(Outcome::Completed { .. })),
+        "{:?}",
+        session.finished()
     );
 }

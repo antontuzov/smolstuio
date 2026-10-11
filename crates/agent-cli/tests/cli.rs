@@ -354,6 +354,10 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
         "git_commit",
         "list_dir",
         "search_files",
+        "memory_store",
+        "memory_recall",
+        "task_plan_create",
+        "task_plan_update",
         "test_run",
         "check_run",
         "lint_run",
@@ -375,7 +379,7 @@ fn tools_lists_every_default_tool_and_what_offering_it_costs() {
     let value: serde_json::Value =
         serde_json::from_slice(&machine.stdout).expect("valid json for tools --json");
     let rows = value["tools"].as_array().expect("a list");
-    assert_eq!(rows.len(), 20, "{rows:?}");
+    assert_eq!(rows.len(), 24, "{rows:?}");
     assert!(
         rows.iter()
             .all(|row| row["permission"].is_string() && row["enabled"].is_boolean()),
@@ -446,7 +450,7 @@ fn a_switched_off_tool_is_listed_and_marked() {
         "a tool that is off is still shown, so a person can switch it on:\n{stdout}"
     );
     assert!(
-        stdout.contains("19 of 20 tool(s) offered"),
+        stdout.contains("23 of 24 tool(s) offered"),
         "and the count says so: {stdout}"
     );
 }
@@ -471,6 +475,7 @@ fn doctor_reports_the_machine_the_repo_and_the_record_without_changing_anything(
         "validation",
         "audit",
         "runs",
+        "memory",
         "machine",
     ] {
         assert!(
@@ -488,7 +493,7 @@ fn doctor_reports_the_machine_the_repo_and_the_record_without_changing_anything(
         serde_json::from_slice(&smoll(dir.path(), &["doctor", "--json"]).stdout.to_vec())
             .expect("valid json for doctor --json");
     assert_eq!(value["ok"], true);
-    assert_eq!(value["checks"].as_array().expect("checks").len(), 13);
+    assert_eq!(value["checks"].as_array().expect("checks").len(), 14);
     assert!(
         dir.path().join("notes.md").is_file(),
         "doctor leaves the repository alone"

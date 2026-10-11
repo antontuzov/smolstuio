@@ -119,7 +119,7 @@ pub fn open(bundle: &ContextBundle, plan: &Plan) -> String {
         }
     }
     if !bundle.notes.is_empty() {
-        turn.push_str("\nFrom earlier in this session:\n");
+        turn.push_str("\nRemembered from earlier runs:\n");
         for note in &bundle.notes {
             turn.push_str(&format!("- {note}\n"));
         }

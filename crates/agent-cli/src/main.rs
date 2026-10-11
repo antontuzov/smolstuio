@@ -42,8 +42,8 @@ use crate::terminal::{Printer, Terminal};
                   writes, and leaves a record you can undo from.\n\n\
                   It answers from a model you run locally; nothing about your code leaves the \
                   machine unless you configure a remote provider.\n\n\
-                  Build status: the loop, the twenty default tools, the sandbox, the audit log \
-                  and the session record all work end to end. In a default build the providers that \
+                  Build status: the loop, the twenty-four default tools, the sandbox, the audit \
+                  log and the session record all work end to end. In a default build the providers that \
                   answer are the scripted mock and the echo inspector; a local .gguf file answers \
                   from its own weights in a binary built with --features llama-cpp, and a server \
                   on the OpenAI wire — Ollama, LM Studio, vLLM, TGI, llama-server, smoll serve — \
@@ -569,6 +569,16 @@ fn what_is_here(cwd: &Path, config: &Config) -> Vec<Line> {
                 0 => "none recorded here yet".to_owned(),
                 1 => "1 recorded run".to_owned(),
                 n => format!("{n} recorded runs"),
+            },
+        ),
+        // What the next run will already know. Memory is the one record a rollback
+        // deliberately leaves where it put it, so a person can see it here.
+        Line::good(
+            "memory",
+            match agent_tools::notes_kept(&cwd.join(agent_tools::MEMORY_FILE)) {
+                0 => "nothing remembered yet".to_owned(),
+                1 => "1 note for the next run".to_owned(),
+                n => format!("{n} notes for the next run"),
             },
         ),
     ]

@@ -94,17 +94,23 @@ warning naming both numbers, when it asks for more than the host has.
   `smoll tools` lists what a run can be given and what offering it costs in
   prompt tokens. Every command takes `-C/--cwd` and `--json`, and the exit code
   distinguishes a task that did not work (1) from one it should not have been
-  asked to do (2). The twenty default tools are `read_file`, `list_dir`,
+  asked to do (2). The twenty-four default tools are `read_file`, `list_dir`,
   `search_files`, `search_text`, `search_symbols`, `git_status`, `git_diff`,
   `git_log` and `git_show` for seeing; `write_file`, `patch_file` and
   `delete_file` for changing, each one journaled so `smoll rollback` puts it
   back; `git_add` and `git_commit` for recording a change — both are writes, so
   they ask, and a rollback does not undo them; `run_command` for a program you
-  name; and `test_run`, `check_run`, `lint_run`, `format_run` and `build_run` for the commands
+  name; `test_run`, `check_run`, `lint_run`, `format_run` and `build_run` for the commands
   the repository declares about itself, which take no arguments at all — the
   argv comes from `Cargo.toml`, `package.json` or `Makefile`, never from the
-  model, and `format_run` only asks the formatter to report. Nothing in the git
+  model, and `format_run` only asks the formatter to report; `memory_store` and
+  `memory_recall` for what a run learns about this repository, kept in
+  `.smoll/memory.jsonl` and read back on the next run's first turn; and
+  `task_plan_create` and `task_plan_update` for a model that knows a better plan
+  than the four steps it was handed. Nothing in the git
   set reaches a remote: there is no push, fetch or branch here. See
+  [docs/tools.md](docs/tools.md) for what each one may touch and what it costs
+  the prompt, and
   [crates/agent-core/tests/loop_runs.rs](crates/agent-core/tests/loop_runs.rs)
   for the behaviours that are actually proven. Two providers answer in a default
   build: the scripted mock and the echo inspector. A third, `type = "gguf"`,
@@ -381,7 +387,7 @@ crates/
   smollm-cli        the `smollm` binary
   agent-config      the TOML the agent runs on, plus env and CLI overrides
   agent-sandbox     policy, approval modes, audit log and secret redaction
-  agent-tools       the twenty tools, their registry, the gate and rollback journal
+  agent-tools       the twenty-four tools, their registry, the gate and rollback journal
   agent-repo        ignore-aware index, repo map, search ranking and unified diffs
   agent-providers   Provider trait, tool-call parsing, Mock, Echo, GGUF and OpenAI-wire providers
   agent-core        the loop: context, plan, tools, repair, approval, validation
@@ -395,7 +401,9 @@ The `agent-*` crates are the coding agent being built on top of the model layer,
 and the desktop app is frozen while that happens: it keeps passing its gates and
 gets no new features. Configuration is documented in
 [docs/agent-config.md](docs/agent-config.md), the provider layer in
-[docs/providers.md](docs/providers.md).
+[docs/providers.md](docs/providers.md), and every tool a run can be given — what
+it may touch, where its arguments come from, what it costs the prompt — in
+[docs/tools.md](docs/tools.md).
 
 ## Roadmap
 

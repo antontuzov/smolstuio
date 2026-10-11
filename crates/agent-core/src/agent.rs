@@ -73,7 +73,10 @@ use agent_providers::{
 };
 use agent_repo::{map, patch, Index, Project, RepoMap};
 use agent_sandbox::Permission;
-use agent_tools::{needs_approval, Context, Intent, Registry, ToolCall, ToolResult, ToolStatus};
+use agent_tools::{
+    authored, needs_approval, recent_notes, Context, Intent, PlanDoc, Registry, ToolCall,
+    ToolResult, ToolStatus, MEMORY_FILE,
+};
 use smollm_core::chat::{approx_token_count, chat_message, CancelToken, ChatMessage, Role};
 
 use crate::approve::{Approver, AutoApprove, RefuseAll};
@@ -81,8 +84,14 @@ use crate::error::{AgentError, Budget};
 use crate::prompt;
 use crate::types::{
     now_ms, AgentEvent, ApprovalDecision, ApprovalRequest, ContextBundle, ContextFile, Outcome,
-    Plan, Session, StepStatus,
+    Plan, PlanStep, Session, StepStatus,
 };
+
+/// How many remembered notes the first turn is worth. They are one line each and
+/// they are what a previous run paid a whole session to learn, so they are the
+/// cheapest context in the prompt — but a tenth of them is usually the same
+/// sentence in other words.
+const MAX_MEMORY_NOTES: usize = 6;
 
 /// How many file bodies the first turn gets, whatever the window allows. A model
 /// that has been shown eight files reasons about none of them.
@@ -142,7 +151,7 @@ impl Default for Limits {
             max_steps: 20,
             // The ceiling a run may plan for, not the one it gets: `window` takes
             // the smaller of this and what the model actually advertises. It is
-            // set above the twenty default tools' cost so a 16k model spends its
+            // set above the twenty-four default tools' cost so a 16k model spends its
             // spare on the repository rather than on an empty prompt.
             max_context_tokens: 16_000,
             timeout: Duration::from_secs(120),
@@ -518,13 +527,21 @@ impl Agent {
         let project = Project::detect(&index);
         let about = format!("{} · {}", project.describe(), index.describe());
         let system = prompt::system(schemas, tool_calling, &about);
+        // What an earlier run learned, on every turn, unless the model says it has
+        // nothing to keep. One sentence apiece, and shorter than the file bodies
+        // they are competing with for the same room.
+        let notes = recent_notes(&self.ctx.root.join(MEMORY_FILE), MAX_MEMORY_NOTES);
 
-        // Every step pays for the rules and for the tool list, once, in whichever
-        // form this provider carries it. The repository gets what is left.
+        // Every step pays for the rules, for the tool list and for what it
+        // remembered. The repository gets what is left.
         let mut fixed = approx_token_count(&system) as usize;
         if tool_calling {
             fixed += schemas.iter().map(ToolSchema::token_cost).sum::<usize>();
         }
+        fixed += notes
+            .iter()
+            .map(|note| approx_token_count(note) as usize)
+            .sum::<usize>();
         let available =
             window.saturating_sub(fixed + self.limits.reply_tokens() as usize + PROMPT_RESERVE);
         // The map is the part that is not recoverable by asking: a model that has
@@ -535,6 +552,7 @@ impl Agent {
         let repo_map = RepoMap::build(&index, &project, Some(task), map_budget);
         let mut bundle = ContextBundle::new(task);
         bundle.repo_map = repo_map.text;
+        bundle.notes = notes;
         for candidate in map::context(
             &index,
             task,
@@ -560,6 +578,9 @@ impl Agent {
     /// model told to plan spends its window restating the task, and a loop cannot
     /// mark a plan it did not own as it went. The files the ranking chose and the
     /// project's own validation command are what make it specific to this run.
+    /// `task_plan_create` is the way out for a model that knows better — see
+    /// [`Agent::adopt_plan`], which takes the inference off once the plan is the
+    /// model's and keeps the checking it does not need a plan for.
     fn plan_for(&self, task: &str, survey: &Survey) -> (Plan, Option<usize>) {
         let named: Vec<String> = survey.bundle.paths().into_iter().take(3).collect();
         let read = if named.is_empty() {
@@ -583,6 +604,42 @@ impl Agent {
         };
         steps.push("Summarise what changed and what did not".to_owned());
         (Plan::new(one_line(task), steps), validate)
+    }
+
+    /// Take the plan the model wrote in place of the scaffold, and say so twice:
+    /// in the transcript, and in the next turn's prompt, which is built from this.
+    ///
+    /// The loop stops inferring step progress here — it cannot know which of six
+    /// sentences a `read_file` was meant to satisfy — but it does not stop checking
+    /// the work: `validate_if_due` still runs the repository's own command, and it
+    /// still has a box to mark if the new plan kept one that names the command. A
+    /// goal the model did not restate stays as the task in one line, because the
+    /// plan is a checklist and not a licence to rename the job.
+    fn adopt_plan(&self, state: &mut State, doc: PlanDoc) {
+        let steps: Vec<PlanStep> = doc
+            .steps
+            .into_iter()
+            .map(|step| PlanStep {
+                title: step.title,
+                status: step.mark.into(),
+            })
+            .collect();
+        let goal = doc
+            .goal
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or_else(|| one_line(&state.session.task));
+        state.plan = Plan { goal, steps };
+        state.model_owns_plan = true;
+        state.validate_step = state
+            .validate_argv
+            .as_deref()
+            .and_then(|argv| named_step(&state.plan, &argv.join(" ")));
+        self.emit(
+            state,
+            AgentEvent::PlanSet {
+                plan: state.plan.clone(),
+            },
+        );
     }
 
     fn schemas(&self) -> Vec<ToolSchema> {
@@ -833,15 +890,31 @@ impl Agent {
             result = self.settle(call, result, state).await?;
         }
         state.session.note_redactions(result.redactions);
+        // A read fills in the scaffold's first box and a write its second. That is
+        // only a true statement about a plan the scaffold wrote, and only about a
+        // call that did something to the repository: remembering a note and writing
+        // a plan change what the run knows, so neither may tick a box about the work.
+        let speaks_to_the_scaffold = !state.model_owns_plan && !changes_only_the_run(&call.name);
         match &result.status {
-            ToolStatus::Completed if result.permission == Permission::ReadOnly => {
+            ToolStatus::Completed
+                if result.permission == Permission::ReadOnly && speaks_to_the_scaffold =>
+            {
                 self.advance(state, 0, StepStatus::Done)
             }
-            ToolStatus::Completed if result.permission == Permission::Write => {
+            ToolStatus::Completed
+                if result.permission == Permission::Write && speaks_to_the_scaffold =>
+            {
                 self.advance(state, 1, StepStatus::Done)
             }
             ToolStatus::Refused { .. } => self.record_proposal(call, state),
             _ => {}
+        }
+        // The model has taken over the plan, so from here the boxes are filled by
+        // the model copying them back ticked and the loop stops guessing.
+        if result.is_success() {
+            if let Ok(Some(doc)) = authored(call) {
+                self.adopt_plan(state, doc);
+            }
         }
         let applied: Vec<PathBuf> = self
             .ctx
@@ -856,7 +929,12 @@ impl Agent {
             },
         );
         if !applied.is_empty() {
-            self.advance(state, 0, StepStatus::Done);
+            // The files that changed are a fact; which step of the plan that fact
+            // satisfies is the loop's guess, and it only gets to make one about a
+            // plan it wrote itself.
+            if !state.model_owns_plan {
+                self.advance(state, 0, StepStatus::Done);
+            }
             self.emit(state, AgentEvent::ChangesApplied { files: applied });
         }
         Ok(result)
@@ -917,9 +995,9 @@ impl Agent {
     }
 
     /// What a person is shown beside the question: the change itself, or the exact
-    /// command.
+    /// command, or the sentence a note would keep.
     fn detail(&self, call: &ToolCall) -> String {
-        for key in ["patch", "content"] {
+        for key in ["patch", "content", "note"] {
             if let Some(text) = call.arguments.get(key).and_then(Value::as_str) {
                 return truncated(text, 1_200);
             }
@@ -941,7 +1019,9 @@ impl Agent {
                 state.proposal.push(file.clone());
             }
         }
-        self.advance(state, 1, StepStatus::Skipped);
+        if !state.model_owns_plan {
+            self.advance(state, 1, StepStatus::Skipped);
+        }
         self.emit(state, AgentEvent::DiffProposed { diff, files });
     }
 
@@ -977,20 +1057,19 @@ impl Agent {
     /// the change stands and the warning says the result was never checked, which
     /// is the honest version.
     async fn validate_if_due(&self, state: &mut State) -> Result<bool, AgentError> {
-        if state.validated || state.validate_step.is_none() || self.ctx.changes().is_empty() {
+        if state.validated || self.ctx.changes().is_empty() {
             return Ok(false);
         }
         let Some(argv) = state.validate_argv.clone() else {
             return Ok(false);
         };
-        let index = state.validate_step.expect("a step the plan holds");
         state.validated = true;
-        self.advance(state, index, StepStatus::Running);
+        self.mark_validation(state, StepStatus::Running);
         let call = ToolCall::new("run_command", json!({"argv": argv.clone()}));
         let result = match self.run_one(&call, state).await {
             Ok(result) => result,
             Err(AgentError::Rejected { reason }) => {
-                self.advance(state, index, StepStatus::Skipped);
+                self.mark_validation(state, StepStatus::Skipped);
                 self.emit(
                     state,
                     AgentEvent::Warning {
@@ -1007,13 +1086,24 @@ impl Agent {
         let outcome = prompt::observation(std::slice::from_ref(&result));
         state.tail.push(chat_message(Role::User, outcome));
         if result.is_success() {
-            self.advance(state, index, StepStatus::Done);
+            self.mark_validation(state, StepStatus::Done);
             state.validation_failed = None;
         } else {
-            self.advance(state, index, StepStatus::Failed);
+            self.mark_validation(state, StepStatus::Failed);
             state.validation_failed = Some(format!("{} — {}", argv.join(" "), result.summary()));
         }
         Ok(true)
+    }
+
+    /// Tick the plan's validation box, when this run's plan still has one.
+    ///
+    /// A model that rewrote the plan may have dropped the line that named the
+    /// command, and a box it never drew is not the loop's to fill. The command
+    /// itself still runs: checking the work is not something a plan can waive.
+    fn mark_validation(&self, state: &mut State, status: StepStatus) {
+        if let Some(index) = state.validate_step {
+            self.advance(state, index, status);
+        }
     }
 
     /// The answer the run reports. A model that stopped with nothing to say is
@@ -1083,6 +1173,13 @@ impl Agent {
     /// A plan the run never finished is reported as skipped rather than left open:
     /// whoever reads the transcript should be able to tell what did not happen.
     fn close_plan(&self, state: &mut State) {
+        // Which is the loop's own plan's story to tell. A model that wrote its own
+        // marked it as it went, by copying it back with the boxes ticked; the ones
+        // it left open are the plan as it last stood, and this run has no evidence
+        // that they did not happen.
+        if state.model_owns_plan {
+            return;
+        }
         let last = state.plan.steps.len().saturating_sub(1);
         for index in 0..state.plan.steps.len() {
             let status = match state.plan.steps[index].status {
@@ -1146,6 +1243,10 @@ struct State {
     system: String,
     bundle: ContextBundle,
     plan: Plan,
+    /// Whether the model has written this run's plan, which decides who gets to
+    /// tick its boxes: the loop infers progress from the scaffold it wrote, and
+    /// stops inferring once the plan is the model's.
+    model_owns_plan: bool,
     /// Everything after the system and first-turn messages, which are rebuilt
     /// from `bundle` and `plan` on every step.
     tail: Vec<ChatMessage>,
@@ -1169,6 +1270,7 @@ impl State {
             system: String::new(),
             bundle: ContextBundle::new(task),
             plan: Plan::new(task, Vec::new()),
+            model_owns_plan: false,
             tail: Vec::new(),
             steps_taken: 0,
             proposal: Vec::new(),
@@ -1180,6 +1282,30 @@ impl State {
             warned_budget: false,
         }
     }
+}
+
+/// The tools that change what the run knows rather than what the repository
+/// holds: a note kept for later runs, a plan the model wrote for this one. Their
+/// success cannot fill in a box about the work, and `smoll review` should not read
+/// either of them as a change to the tree.
+fn changes_only_the_run(name: &str) -> bool {
+    matches!(
+        name,
+        "memory_store" | "memory_recall" | "task_plan_create" | "task_plan_update"
+    )
+}
+
+/// Which step of the plan promised this command, if any still does.
+///
+/// The loop writes its own as ``Validate with `cargo test --workspace` ``, so a
+/// model that copied that line over keeps its checkbox; one that wrote the plan
+/// from scratch gets the command run without a box ticked, which is the honest
+/// shape of a plan that never mentioned it.
+fn named_step(plan: &Plan, command: &str) -> Option<usize> {
+    let needle = command.to_lowercase();
+    plan.steps
+        .iter()
+        .position(|step| step.title.to_lowercase().contains(&needle))
 }
 
 /// When the run stopped because it could not go on, what it stopped as.

@@ -49,10 +49,12 @@ impl Registry {
         Self::default()
     }
 
-    /// The twenty tools a first run can use, all of them enabled.
+    /// The twenty-four tools a first run can use, all of them enabled.
     pub fn with_defaults() -> Self {
         use crate::filesystem::{ListDir, ReadFile};
         use crate::git::{GitAdd, GitCommit, GitDiff, GitLog, GitShow, GitStatus};
+        use crate::memory::{MemoryRecall, MemoryStore};
+        use crate::plan::{TaskPlanCreate, TaskPlanUpdate};
         use crate::search::{SearchFiles, SearchSymbols, SearchText};
         use crate::shell::RunCommand;
         use crate::validate::ProjectCommand;
@@ -69,6 +71,9 @@ impl Registry {
             Box::new(GitDiff),
             Box::new(GitLog),
             Box::new(GitShow),
+            Box::new(TaskPlanCreate),
+            Box::new(TaskPlanUpdate),
+            Box::new(MemoryRecall),
             Box::new(RunCommand),
             Box::new(ProjectCommand::test_run()),
             Box::new(ProjectCommand::check_run()),
@@ -77,6 +82,7 @@ impl Registry {
             Box::new(ProjectCommand::build_run()),
             Box::new(WriteFile),
             Box::new(PatchFile),
+            Box::new(MemoryStore),
             Box::new(DeleteFile),
             Box::new(GitAdd),
             Box::new(GitCommit),
@@ -338,8 +344,9 @@ mod tests {
     }
 
     #[test]
-    fn the_default_set_is_the_twenty_tools_a_first_run_can_use() {
+    fn the_default_set_is_the_twenty_four_tools_a_first_run_can_use() {
         let registry = Registry::with_defaults();
+        assert_eq!(registry.len(), 24, "the count the CLI and the docs quote");
         assert_eq!(
             registry.names(),
             vec![
@@ -355,12 +362,16 @@ mod tests {
                 "git_status",
                 "lint_run",
                 "list_dir",
+                "memory_recall",
+                "memory_store",
                 "patch_file",
                 "read_file",
                 "run_command",
                 "search_files",
                 "search_symbols",
                 "search_text",
+                "task_plan_create",
+                "task_plan_update",
                 "test_run",
                 "write_file",
             ]
@@ -368,11 +379,12 @@ mod tests {
         let cost = registry.token_cost();
         assert!(cost > 0, "offering a tool costs prompt tokens");
         assert!(
-            cost < 3_000,
+            cost < 3_600,
             "the whole list is {cost} tokens, and a 4096-token model has to keep the \
-             repository's share: the rules and the plan want about 700 more, the answer wants \
-             256, and what is left over is the map — which is why the twenty tools here take \
-             as few arguments and as few words as they can"
+             repository's share too: the rules and the plan want about 700 more, the answer \
+             wants 256, and what is left over is the map — which is why these tools take as few \
+             arguments and as few words as they can, and why a run that cannot fit the list \
+             says so instead of trimming the repository to nothing"
         );
         let classes: Vec<&str> = {
             let mut seen: Vec<&str> = registry
