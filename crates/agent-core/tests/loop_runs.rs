@@ -42,7 +42,7 @@ fn read(dir: &TempDir, name: &str) -> String {
     })
 }
 
-/// An agent over the fifteen default tools, with the mock as its model.
+/// An agent over the nineteen default tools, with the mock as its model.
 fn agent(provider: Arc<MockProvider>, ctx: Context) -> Agent {
     Agent::new(provider, Registry::with_defaults(), ctx)
 }
@@ -212,7 +212,7 @@ async fn the_first_prompt_shows_the_map_the_files_and_the_plan() {
 async fn a_model_that_has_to_be_told_the_tools_in_prose_still_gets_the_map() {
     // The expensive half of the budget: a model with no native tool array is
     // shown every description as sentences, because that list is its only tool
-    // documentation. Fifteen of them against a 4096-token window is what used to
+    // documentation. Nineteen of them against a 4096-token window is what used to
     // leave no room for the repository at all.
     let dir = repo(&[
         ("notes.md", "old text\n"),

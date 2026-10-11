@@ -49,12 +49,13 @@ impl Registry {
         Self::default()
     }
 
-    /// The fifteen tools a first run can use, all of them enabled.
+    /// The nineteen tools a first run can use, all of them enabled.
     pub fn with_defaults() -> Self {
         use crate::filesystem::{ListDir, ReadFile};
         use crate::git::{GitAdd, GitCommit, GitDiff, GitLog, GitShow, GitStatus};
         use crate::search::{SearchFiles, SearchSymbols, SearchText};
         use crate::shell::RunCommand;
+        use crate::validate::ProjectCommand;
         use crate::write::{DeleteFile, PatchFile, WriteFile};
 
         let mut registry = Self::new();
@@ -69,6 +70,10 @@ impl Registry {
             Box::new(GitLog),
             Box::new(GitShow),
             Box::new(RunCommand),
+            Box::new(ProjectCommand::test_run()),
+            Box::new(ProjectCommand::lint_run()),
+            Box::new(ProjectCommand::format_run()),
+            Box::new(ProjectCommand::build_run()),
             Box::new(WriteFile),
             Box::new(PatchFile),
             Box::new(DeleteFile),
@@ -332,18 +337,21 @@ mod tests {
     }
 
     #[test]
-    fn the_default_set_is_the_fifteen_tools_a_first_run_can_use() {
+    fn the_default_set_is_the_nineteen_tools_a_first_run_can_use() {
         let registry = Registry::with_defaults();
         assert_eq!(
             registry.names(),
             vec![
+                "build_run",
                 "delete_file",
+                "format_run",
                 "git_add",
                 "git_commit",
                 "git_diff",
                 "git_log",
                 "git_show",
                 "git_status",
+                "lint_run",
                 "list_dir",
                 "patch_file",
                 "read_file",
@@ -351,16 +359,18 @@ mod tests {
                 "search_files",
                 "search_symbols",
                 "search_text",
+                "test_run",
                 "write_file",
             ]
         );
         let cost = registry.token_cost();
         assert!(cost > 0, "offering a tool costs prompt tokens");
         assert!(
-            cost < 2_600,
+            cost < 2_900,
             "the whole list is {cost} tokens, and a 4096-token model has to keep the \
              repository's share: the rules and the plan want about 700 more, the answer wants \
-             256, and what is left over is the map"
+             256, and what is left over is the map — which is why the nineteen tools here take \
+             as few arguments and as few words as they can"
         );
         let classes: Vec<&str> = {
             let mut seen: Vec<&str> = registry

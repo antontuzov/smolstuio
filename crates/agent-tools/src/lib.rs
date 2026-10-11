@@ -9,10 +9,15 @@
 //!
 //! This crate owns the implementations and nothing about the agent's reasoning:
 //! a tool never decides whether it should have been called, and cannot widen
-//! what it is allowed to touch. Nine of the fifteen tools read, and one runs a
-//! program. The three that change the tree — `write_file`, `patch_file` and
-//! `delete_file` — delegate the diff and the rollback to `agent-repo`, and record
-//! what they replaced in [`Context::rollback`] so a run that went wrong can be
+//! what it is allowed to touch. Nine of the nineteen tools read. Five run a
+//! program: `run_command` runs whatever arguments the model wrote, and the four
+//! project commands — `test_run`, `lint_run`, `format_run` and `build_run` — run
+//! the argv the repository's own manifests declare and take no arguments at all,
+//! so a check cannot be steered into a deletion. `format_run` narrows that even
+//! further and only reports. The three that change the tree — `write_file`,
+//! `patch_file` and `delete_file` — delegate the diff and the rollback to
+//! `agent-repo`, and record what they replaced in [`Context::rollback`] so a run
+//! that went wrong can be
 //! undone. `delete_file` refuses anything that journal could not put back. The
 //! two that change what git has recorded — `git_add` and `git_commit` — are
 //! writes too, so an approval mode that asks before writing asks before them, and
@@ -50,6 +55,7 @@ mod schema;
 mod search;
 mod shell;
 mod tool;
+mod validate;
 mod write;
 
 pub use agent_sandbox::Permission;
@@ -57,4 +63,5 @@ pub use call::{ToolCall, ToolOutput, ToolResult, ToolStatus};
 pub use context::Context;
 pub use registry::{needs_approval, summarise, Registry, ToolInfo};
 pub use tool::{Intent, Tool, ToolDefinition, DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_SECONDS};
+pub use validate::ProjectCommand;
 pub use write::{PatchFile, WriteFile};

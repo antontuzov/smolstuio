@@ -56,7 +56,7 @@ the repository — about a quarter to the repo map, the rest to the file bodies 
 first turn is handed — and the map keeps a floor even when the window leaves
 nothing to spare, because a model with no table of contents assumes the
 repository is the three files it was shown. `smoll tools` prints what offering
-the fifteen default tools costs on every step of a run.
+the nineteen default tools costs on every step of a run.
 
 ### Approval modes
 
@@ -123,6 +123,16 @@ denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 (block it). An allowlist entry is a prefix a command must start with; the
 denylist is checked first and wins. A non-empty `allowlist` with no `sandbox`
 key is refused — a list nothing enforces is decoration, not policy.
+
+The four tools that check the project's own work (`test_run`, `lint_run`,
+`format_run`, `build_run`) read their command out of the repository's manifests
+instead of taking arguments from the model, so there is no command line for a
+person to approve in advance: what they can be given is a `denylist` pattern over
+the command the project declares, a lower `timeout_seconds`, and `enabled =
+false` to keep the tool out of the prompt altogether. `format_run` goes one step
+further and only asks the formatter to report which files it would change; a
+formatter it cannot put in report mode — a `npm run fmt` script, a `make fmt`
+target, anything carrying `--fix` or `--write` — is refused rather than run.
 
 **The name in the brackets has to be a tool this build registers.** A section
 for any other name parses, applies to nothing, and leaves a denylist that looks

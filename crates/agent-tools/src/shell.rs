@@ -107,85 +107,108 @@ impl Tool for RunCommand {
         let limit = ctx
             .policy
             .timeout_for("run_command", Duration::from_secs(COMMAND_TIMEOUT_SECONDS));
-        let started = std::time::Instant::now();
-        let output = Command::new(&argv[0])
-            .args(&argv[1..])
-            .current_dir(&cwd)
-            // git is the program most likely to ask a question, and a prompt
-            // this agent cannot answer is a step wasted.
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn();
-        let result = match output {
-            Err(source) => {
+        run_program(call, &argv, &cwd, limit).await
+    }
+}
+
+/// Run one program to its end and answer with what it said.
+///
+/// Shared with [`crate::validate`]'s four project commands so that the rules a
+/// program runs under — no shell, a directory inside the workspace, a limit that
+/// kills it, stdout and stderr both kept, and a non-zero exit reported as the
+/// *program's* answer rather than a broken tool — have one implementation.
+pub(crate) async fn run_program(
+    call: &ToolCall,
+    argv: &[String],
+    cwd: &std::path::Path,
+    limit: Duration,
+) -> ToolResult {
+    let Some(program) = argv.first() else {
+        return ToolResult::failed(
+            call.clone(),
+            Permission::Execute,
+            "nothing was named to run".to_owned(),
+            ToolOutput::empty(),
+        );
+    };
+    let started = std::time::Instant::now();
+    let output = Command::new(program)
+        .args(&argv[1..])
+        .current_dir(cwd)
+        // git is the program most likely to ask a question, and a prompt
+        // this agent cannot answer is a step wasted.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
+    let result = match output {
+        Err(source) => {
+            return ToolResult::failed(
+                call.clone(),
+                Permission::Execute,
+                format!("cannot start {program}: {source}"),
+                ToolOutput::empty(),
+            )
+        }
+        Ok(child) => match tokio::time::timeout(limit, child.wait_with_output()).await {
+            Ok(Ok(output)) => output,
+            Ok(Err(source)) => {
                 return ToolResult::failed(
                     call.clone(),
                     Permission::Execute,
-                    format!("cannot start {}: {source}", argv[0]),
+                    format!("{program} failed to run: {source}"),
                     ToolOutput::empty(),
                 )
             }
-            Ok(child) => match tokio::time::timeout(limit, child.wait_with_output()).await {
-                Ok(Ok(output)) => output,
-                Ok(Err(source)) => {
-                    return ToolResult::failed(
-                        call.clone(),
-                        Permission::Execute,
-                        format!("{} failed to run: {source}", argv[0]),
-                        ToolOutput::empty(),
-                    )
-                }
-                Err(_) => {
-                    return ToolResult::failed(
-                        call.clone(),
-                        Permission::Execute,
-                        format!(
-                            "`{}` was stopped after {}s of not finishing",
-                            argv.join(" "),
-                            limit.as_secs()
-                        ),
-                        ToolOutput::new(
-                            "the program was killed; a long build or a test that \
+            Err(_) => {
+                return ToolResult::failed(
+                    call.clone(),
+                    Permission::Execute,
+                    format!(
+                        "`{}` was stopped after {}s of not finishing",
+                        argv.join(" "),
+                        limit.as_secs()
+                    ),
+                    ToolOutput::new(
+                        "the program was killed; a long build or a test that \
                                          waits on input is worth running outside the agent"
-                                .to_owned(),
-                        ),
-                    )
-                }
-            },
-        };
-        let duration_ms = started.elapsed().as_millis() as u64;
-        let stdout = String::from_utf8_lossy(&result.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
-        let mut text = String::new();
-        if !stdout.trim().is_empty() {
-            text.push_str("--- out ---\n");
-            text.push_str(stdout.trim_end());
-            text.push('\n');
-        }
-        if !stderr.trim().is_empty() {
-            text.push_str("--- err ---\n");
-            text.push_str(stderr.trim_end());
-            text.push('\n');
-        }
-        if text.is_empty() {
-            text = "(the program printed nothing)\n".to_owned();
-        }
-        let code = match result.status.code() {
-            Some(code) => code.to_string(),
-            None => "on a signal".to_owned(),
-        };
-        let message = format!("`{}` exited {code}", argv.join(" "));
-        let output = ToolOutput::new(format!("[exit {code}]\n{text}"));
-        if result.status.success() {
-            ToolResult::completed(call.clone(), Permission::Execute, output, duration_ms)
-        } else {
-            // A failed test is not a broken tool: the output is the answer, and
-            // the status says the thing it reports about did not work.
-            ToolResult::failed(call.clone(), Permission::Execute, message, output)
-        }
+                            .to_owned(),
+                    ),
+                )
+            }
+        },
+    };
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let stdout = String::from_utf8_lossy(&result.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
+    let mut text = String::new();
+    if !stdout.trim().is_empty() {
+        text.push_str("--- out ---\n");
+        text.push_str(stdout.trim_end());
+        text.push('\n');
+    }
+    if !stderr.trim().is_empty() {
+        text.push_str("--- err ---\n");
+        text.push_str(stderr.trim_end());
+        text.push('\n');
+    }
+    if text.is_empty() {
+        text = "(the program printed nothing)\n".to_owned();
+    }
+    let code = match result.status.code() {
+        Some(code) => code.to_string(),
+        None => "on a signal".to_owned(),
+    };
+    let message = format!("`{}` exited {code}", argv.join(" "));
+    let output = ToolOutput::new(format!("[exit {code}]\n{text}"));
+    if result.status.success() {
+        ToolResult::completed(call.clone(), Permission::Execute, output, duration_ms)
+    } else {
+        // A failed test is not a broken tool: the output is the answer, and
+        // the status says the thing it reports about did not work.
+        ToolResult::failed(call.clone(), Permission::Execute, message, output)
     }
 }
 

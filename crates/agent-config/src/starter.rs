@@ -95,6 +95,15 @@ denylist = ["rm -rf", "sudo", "git push --force", "curl | sh"]
 [tools.search_text]
 enabled = true
 
+# The four tools that check the project's own work — `test_run`, `lint_run`,
+# `format_run` and `build_run` — read their command from this repository's
+# manifests rather than taking arguments, so there is nothing to allowlist here.
+# What they do take is a shorter timeout, a denylist over the command the project
+# declares, and `enabled = false` to keep one out of the prompt entirely.
+[tools.test_run]
+enabled = true
+timeout_seconds = 300
+
 # `delete_file` is the one default tool that removes something. It always asks a
 # person, whatever the approval mode, and `smoll rollback` puts the file back
 # from what the run recorded. To take it off the table for a project:
