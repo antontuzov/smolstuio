@@ -12,11 +12,13 @@
 //! patch application lives here and is tested against files that do not match
 //! the hunk headers.
 
+pub mod head;
 pub mod index;
 pub mod map;
 pub mod patch;
 pub mod project;
 
+pub use head::head_branch;
 pub use index::{FileEntry, Index, Language, AGENT_IGNORE_FILE, MAX_READ_BYTES};
 pub use map::{declarations_at, Candidate, Declaration, RepoMap, Scored};
 pub use patch::{

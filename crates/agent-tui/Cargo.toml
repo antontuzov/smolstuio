@@ -1,0 +1,19 @@
+[package]
+name = "agent-tui"
+description = "The ratatui screen for the smoll coding agent: transcript, tool log, plan, diff and approvals"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+agent-config.workspace = true
+agent-core.workspace = true
+smollm-core.workspace = true
+async-trait.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true

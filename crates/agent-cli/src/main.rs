@@ -27,10 +27,13 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 use uuid::Uuid;
 
-use agent_config::{ApprovalMode, Config, ConfigError};
-use agent_core::{now_ms, Agent, AgentError, AgentEvent, Budget, Outcome, Run, StoredSession};
+use agent_config::{ApprovalMode, Config, ConfigError, ProviderKind};
+use agent_core::{
+    now_ms, Agent, AgentError, AgentEvent, Approver, Budget, Outcome, Run, StoredSession,
+};
 use agent_sandbox::{read_entries, AuditLog, Policy, AUDIT_FILE};
 use agent_tools::{Context, Registry};
+use agent_tui::{Header, Hub, Palette};
 
 use crate::terminal::{Printer, Terminal};
 
@@ -101,6 +104,33 @@ enum Commands {
         #[arg(long, value_name = "MODE")]
         approval_mode: Option<ApprovalMode>,
     },
+    /// The same loop as `smoll task`, drawn: transcript, tool log, plan, diff and
+    /// approvals on one screen
+    ///
+    /// Needs a terminal to draw on; in a pipe or a CI job it says so and points at
+    /// `smoll task`, which runs the identical loop as printed output.
+    Chat {
+        /// Start with this task instead of waiting for a keystroke
+        prompt: Option<String>,
+
+        /// Answer every approval prompt yes, for as long as the screen is open.
+        /// The sandbox still refuses what it refuses; this skips the questions
+        /// aimed at a person.
+        #[arg(long)]
+        yes: bool,
+
+        /// Change nothing: every write stays a proposed diff
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Override the configured approval mode for this screen
+        #[arg(long, value_name = "MODE")]
+        approval_mode: Option<ApprovalMode>,
+
+        /// Open in this palette: dark, light, solarized or monokai
+        #[arg(long, value_name = "NAME")]
+        theme: Option<String>,
+    },
     /// Show a recorded run: its plan, its outcome and the files it wrote
     Review {
         /// The run to show, or the most recent one in this workspace
@@ -140,6 +170,13 @@ async fn main() -> ExitCode {
             dry_run,
             approval_mode,
         }) => cmd_task(&cwd, cli.json, &prompt, yes, dry_run, approval_mode).await,
+        Some(Commands::Chat {
+            prompt,
+            yes,
+            dry_run,
+            approval_mode,
+            theme,
+        }) => cmd_chat(&cwd, cli.json, prompt, yes, dry_run, approval_mode, theme).await,
         Some(Commands::Review { id }) => cmd_review(&cwd, cli.json, id.as_deref()),
         Some(Commands::Rollback { id }) => cmd_rollback(&cwd, cli.json, id.as_deref()),
         Some(Commands::Eval) => cmd_eval(cli.json).await,
@@ -248,7 +285,8 @@ fn cmd_init(cwd: &Path, json: bool, force: bool) -> Result<(), Failure> {
     println!(
         "The starter answers from the mock provider, so this configuration runs with no model \
          on disk. Point it at a real one by editing [providers] in {}; until then `smoll task` \
-         asks a script that says it has nothing scripted.",
+         asks a script that says it has nothing scripted, and `smoll chat` draws the same \
+         answer.",
         path.display()
     );
     print_warnings(&loaded.warnings);
@@ -617,48 +655,10 @@ async fn cmd_task(
     dry_run: bool,
     approval_mode: Option<ApprovalMode>,
 ) -> Result<(), Failure> {
-    let mut loaded = agent_config::load(cwd)?;
-    if let Some(mode) = approval_mode {
-        loaded.config.agent.approval_mode = mode;
-    }
-    if dry_run {
-        loaded.config.agent.approval_mode = ApprovalMode::SuggestOnly;
-    }
-    let config = loaded.config;
-    print_warnings(&loaded.warnings);
-
-    let (name, provider_config) = config
-        .resolve_provider()
-        .map_err(|problems| Failure::usage(render(problems)))?;
-    let provider = agent_providers::build(name, provider_config)
-        .map_err(|source| Failure::usage(format!("provider {name}: {source}")))?;
-
-    let policy = Policy::from_config(cwd, &config);
-    let registry = Registry::with_defaults().enabled_by(&policy);
-    // The price of the tool list is what a person trimming it needs to see, so
-    // it is measured here rather than left to `smoll tools`.
-    let offered = registry.len();
-    let tool_tokens = registry.token_cost();
-    let mut ctx = Context::from_config(cwd, &config);
-    if config.agent.audit_log {
-        ctx = ctx
-            .with_audit(AuditLog::in_workspace(cwd).map_err(|source| {
-                Failure::usage(format!("cannot open the audit log: {source}"))
-            })?);
-    }
-
-    let mut agent = Agent::configured(provider, registry, &config, ctx);
-    // `--yes` replaces the approver; an autonomous-safe mode already came with
-    // one, and swapping it for a terminal would start asking questions the
-    // configuration has already answered.
-    agent = if yes {
-        agent.autoapprove()
-    } else {
-        match config.agent.approval_mode {
-            ApprovalMode::AutonomousSafe => agent,
-            _ => agent.with_approver(Arc::new(Terminal::new())),
-        }
-    };
+    let prepared = prepare(cwd, dry_run, approval_mode)?;
+    let offered = prepared.tools;
+    let tool_tokens = prepared.tool_tokens;
+    let agent = prepared.with_approval(yes, Arc::new(Terminal::new()));
     let mut agent = agent.with_observer(Arc::new(Printer::new(json)));
 
     let Run { session, error } = agent.run(prompt).await;
@@ -694,6 +694,183 @@ async fn cmd_task(
         Ok(())
     } else {
         Err(Failure::exit(code))
+    }
+}
+
+/// What a run is made of, before anything is asked to watch it.
+///
+/// `smoll task` and `smoll chat` start the identical loop; what differs is who
+/// sees its events and who answers its questions — a printed run asks on the
+/// terminal, a drawn one asks on the screen. Everything else lives here once, so
+/// the two commands cannot drift apart on the parts that decide what a run may do.
+struct Prepared {
+    agent: Agent,
+    /// The provider, with the model in it when the provider reports one.
+    provider: String,
+    /// The window this run plans against: the smaller of what the model was
+    /// configured to hold and what the provider says it can hold.
+    window: usize,
+    tools: usize,
+    tool_tokens: usize,
+    mode: ApprovalMode,
+    /// The line a scripted provider has to carry, because a mock answer must not
+    /// be mistaken for a model's.
+    caution: Option<String>,
+}
+
+impl Prepared {
+    /// Hand the run its approver. `--yes` answers for itself, an autonomous-safe
+    /// mode already came with its own policy approver, and any other mode asks a
+    /// person through `fallback` — the terminal for a printed run, the screen for
+    /// a drawn one.
+    fn with_approval(self, yes: bool, fallback: Arc<dyn Approver>) -> Agent {
+        if yes {
+            self.agent.autoapprove()
+        } else {
+            match self.mode {
+                ApprovalMode::AutonomousSafe => self.agent,
+                _ => self.agent.with_approver(fallback),
+            }
+        }
+    }
+}
+
+fn prepare(
+    cwd: &Path,
+    dry_run: bool,
+    approval_mode: Option<ApprovalMode>,
+) -> Result<Prepared, Failure> {
+    let mut loaded = agent_config::load(cwd)?;
+    if let Some(mode) = approval_mode {
+        loaded.config.agent.approval_mode = mode;
+    }
+    if dry_run {
+        loaded.config.agent.approval_mode = ApprovalMode::SuggestOnly;
+    }
+    let mode = loaded.config.agent.approval_mode;
+    let config = loaded.config;
+    print_warnings(&loaded.warnings);
+
+    let (name, provider_config) = config
+        .resolve_provider()
+        .map_err(|problems| Failure::usage(render(problems)))?;
+    let kind = provider_config.kind;
+    let provider = agent_providers::build(name, provider_config)
+        .map_err(|source| Failure::usage(format!("provider {name}: {source}")))?;
+    // The provider is asked after it is built, not from the config table: a GGUF
+    // file reports the window its own metadata carries, and a status bar that
+    // quoted the configured number instead would be quoting a hope.
+    let window = provider
+        .capabilities()
+        .context_tokens
+        .min(config.agent.max_context_tokens);
+
+    let policy = Policy::from_config(cwd, &config);
+    let registry = Registry::with_defaults().enabled_by(&policy);
+    // The price of the tool list is what a person trimming it needs to see, so
+    // it is measured here rather than left to `smoll tools`.
+    let tools = registry.len();
+    let tool_tokens = registry.token_cost();
+    let mut ctx = Context::from_config(cwd, &config);
+    if config.agent.audit_log {
+        ctx = ctx
+            .with_audit(AuditLog::in_workspace(cwd).map_err(|source| {
+                Failure::usage(format!("cannot open the audit log: {source}"))
+            })?);
+    }
+
+    let agent = Agent::configured(provider, registry, &config, ctx);
+    let provider = agent.provider_name();
+    Ok(Prepared {
+        agent,
+        provider,
+        window,
+        tools,
+        tool_tokens,
+        mode,
+        caution: match kind {
+            ProviderKind::Mock | ProviderKind::Echo => Some(format!(
+                "nothing on this screen was answered by a model: the {kind} provider replies from \
+                 a script. Point [providers] in smoll.toml at a .gguf file or an \
+                 OpenAI-compatible server to get a real answer."
+            )),
+            _ => None,
+        },
+    })
+}
+
+/// `smoll chat` is `smoll task` drawn: same provider, same tools, same record in
+/// `.smoll/sessions`, with the transcript, the plan, the diff and the approval
+/// questions on one screen instead of in a stream of stderr.
+async fn cmd_chat(
+    cwd: &Path,
+    json: bool,
+    prompt: Option<String>,
+    yes: bool,
+    dry_run: bool,
+    approval_mode: Option<ApprovalMode>,
+    theme: Option<String>,
+) -> Result<(), Failure> {
+    // A screen has no machine-readable form, and pretending otherwise would leave
+    // a script parsing escape codes.
+    if json {
+        return Err(Failure::usage(
+            "`smoll chat` draws a screen, and a screen has no json form; `smoll task --json` \
+             gives this same run as one document.",
+        ));
+    }
+    // Checked before the terminal is taken over: a pipe or a CI job has no screen,
+    // and writing escape sequences into someone's file is not a way to report that.
+    if !agent_tui::has_a_screen() {
+        return Err(Failure::usage(
+            "there is no terminal to draw on here; `smoll task …` runs the identical loop as \
+             printed output.",
+        ));
+    }
+    let palette = match theme.as_deref() {
+        None => Palette::default(),
+        Some(want) => Palette::parse(want).ok_or_else(|| {
+            Failure::usage(format!(
+                "there is no theme {want:?}; the screen has {}",
+                Palette::names().join(", ")
+            ))
+        })?,
+    };
+
+    let prepared = prepare(cwd, dry_run, approval_mode)?;
+    let header = Header {
+        agent: format!("smoll {}", env!("CARGO_PKG_VERSION")),
+        provider: prepared.provider.clone(),
+        workspace: cwd.display().to_string(),
+        branch: agent_repo::head_branch(cwd).unwrap_or_else(|| "none".to_owned()),
+        mode: prepared.mode.to_string(),
+        window: prepared.window,
+        tools: prepared.tools,
+        tool_tokens: prepared.tool_tokens,
+        palette,
+        caution: prepared.caution.clone(),
+    };
+
+    // The hub is both the screen's feed and the run's approver, so one object
+    // carries every message between them; the receiver is taken before the hub is
+    // shared because a channel has one reader.
+    let mut hub = Hub::new();
+    let feed = hub
+        .feed()
+        .expect("a hub that was just built still has its feed to hand over");
+    let hub = Arc::new(hub);
+    let agent = prepared.with_approval(yes, hub.clone()).with_observer(hub);
+
+    let report = agent_tui::run(agent, feed, cwd.to_path_buf(), header, prompt)
+        .await
+        .map_err(|source| Failure::usage(source.to_string()))?;
+    println!("{}", report.message);
+    if report.failures == 0 {
+        Ok(())
+    } else {
+        // The screen closed cleanly; what failed was a run inside it, which is the
+        // exit code `smoll task` uses for the same thing.
+        Err(Failure::exit(1))
     }
 }
 

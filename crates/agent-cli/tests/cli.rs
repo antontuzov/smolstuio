@@ -35,7 +35,7 @@ fn help_lists_the_subcommands_and_the_flags_a_ci_job_needs() {
     let output = smoll(dir.path(), &["--help"]);
     let help = text(&output);
     for command in [
-        "init", "doctor", "config", "tools", "task", "review", "rollback", "eval",
+        "init", "doctor", "config", "tools", "task", "chat", "review", "rollback", "eval",
     ] {
         assert!(
             help.contains(command),
@@ -602,6 +602,47 @@ fn running_with_no_subcommand_is_a_usage_error() {
         .expect("the binary runs");
     assert_eq!(output.status.code(), Some(2));
     assert!(text(&output).contains("--help"), "{}", text(&output));
+}
+
+/// A test process has pipes on both ends, which is exactly the case `smoll chat`
+/// has to refuse: nothing here can leave a shell in raw mode, and the answer a
+/// script gets is one line and exit 2.
+#[test]
+fn chat_refuses_a_place_with_no_terminal() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let output = smoll(dir.path(), &["chat"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output));
+    let shown = text(&output);
+    assert!(shown.contains("no terminal to draw on"), "{shown}");
+    assert!(
+        shown.contains("smoll task"),
+        "the refusal must name the command that works here: {shown}"
+    );
+    assert!(
+        !shown.contains('\x1b'),
+        "no escape sequence reaches a pipe, so a log file stays readable"
+    );
+
+    let both = smoll(dir.path(), &["chat", "--json"]);
+    assert_eq!(both.status.code(), Some(2));
+    let shown = text(&both);
+    assert!(shown.contains("no json form"), "{shown}");
+    assert!(
+        shown.contains("--json"),
+        "the pointer names the flag that does work: {shown}"
+    );
+}
+
+#[test]
+fn chat_help_names_the_flags_the_screen_uses() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let help = text(&smoll(dir.path(), &["chat", "--help"]));
+    for flag in ["--yes", "--dry-run", "--approval-mode", "--theme"] {
+        assert!(
+            help.contains(flag),
+            "{flag} missing from `chat --help`:\n{help}"
+        );
+    }
 }
 
 /// `smoll eval` reports on itself as it runs, so a CI job can read the same

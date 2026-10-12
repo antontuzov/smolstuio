@@ -62,6 +62,15 @@ measured and assert nothing, because a stored time baseline goes stale on the
 next machine and there is no number here to keep in step. See
 [docs/eval.md](docs/eval.md).
 
+The screen is tested without a terminal. `crates/agent-tui/tests/screen.rs` draws
+a frame into `ratatui`'s `TestBackend` and reads that buffer back cell by cell;
+the crate's own tests cover the model, the layout maths, and the keys through
+`press()`, which takes a screen and a key event and returns an effect, so no run is
+involved. A change to any of them has to keep the two rules these tests exist for:
+a question nobody answered is a no, and the terminal comes back on every path out.
+Driving the real binary needs a pty, which CI does not have, so that check stays a
+local one and is described in [docs/tui.md](docs/tui.md).
+
 Clippy is configured to fail on warnings, and `lint` runs with
 `--max-warnings=0`. If a lint genuinely needs suppressing, use a scoped
 `#[allow]`/`eslint-disable` with a one-line reason, never a blanket ignore.

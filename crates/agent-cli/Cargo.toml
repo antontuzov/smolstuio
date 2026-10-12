@@ -26,6 +26,7 @@ agent-providers.workspace = true
 agent-repo.workspace = true
 agent-sandbox.workspace = true
 agent-tools.workspace = true
+agent-tui.workspace = true
 smollm-core.workspace = true
 smollm-hardware.workspace = true
 async-trait.workspace = true

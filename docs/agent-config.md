@@ -224,6 +224,7 @@ $ smoll config          # the resolved configuration, as TOML, with the files it
 $ smoll config --json   # the same thing for a script
 $ smoll doctor          # this machine, this repository and this config, read and reported
 $ smoll tools           # what a run may be given, and the prompt tokens that costs on every step
+$ smoll chat            # a run, drawn: the status bar repeats the provider, branch, mode and window above
 $ smoll eval            # the promises re-run against the real loop, and what a first turn costs
 ```
 
@@ -235,7 +236,10 @@ kebab-case. An unknown key at any level is an error rather than a shrug.
 `smoll task` takes three flags that override the file for a single run instead of
 editing it: `--approval-mode MODE`, `--dry-run` (this run changes nothing; every
 write comes back as a proposed diff) and `--yes` (ask nobody, which is what a CI
-job needs and the policy still refuses what the policy refuses).
+job needs and the policy still refuses what the policy refuses). `smoll chat`
+takes those three and `--theme NAME`; its `--yes` holds for as long as the screen
+is open, and the mode a run was built with cannot be switched inside it — see
+[docs/tui.md](tui.md).
 
 Whatever a run did, it leaves behind `.smoll/sessions/<id>.json`: the transcript,
 the token count, and the journal of what each write replaced. `smoll review`

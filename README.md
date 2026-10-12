@@ -90,9 +90,12 @@ warning naming both numbers, when it asks for more than the host has.
   `suggest-only`, writes with approval, runs the project's own validation command
   and leaves a record in `.smoll/sessions/`; `smoll review` reads that record
   back and `smoll rollback` puts the files the run wrote the way they were.
-  `smoll doctor` answers what this machine, repository and config add up to, and
+  `smoll doctor` answers what this machine, repository and config add up to,
   `smoll tools` lists what a run can be given and what offering it costs in
-  prompt tokens. `smoll eval` runs the promises the loop makes — that a refusal
+  prompt tokens, and `smoll chat` draws that same run — transcript, tool log,
+  plan, diff and approval questions on one screen, answered with one key; see
+  [docs/tui.md](docs/tui.md).
+  `smoll eval` runs the promises the loop makes — that a refusal
   writes nothing, a barred command never starts, a secret is masked before the
   model sees it — against the real loop in throwaway workspaces, with scripted
   answers in place of a model, and prices a first turn while it is at it; see
@@ -417,7 +420,8 @@ gets no new features. Configuration is documented in
 it may touch, where its arguments come from, what it costs the prompt — in
 [docs/tools.md](docs/tools.md). The command that re-checks those claims instead
 of restating them, and the timings of the parts of a turn that are ours, are in
-[docs/eval.md](docs/eval.md).
+[docs/eval.md](docs/eval.md), and the keys, panes and themes of the drawn version
+of a run are in [docs/tui.md](docs/tui.md).
 
 ## Roadmap
 

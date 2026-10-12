@@ -16,6 +16,7 @@ members = [
   "crates/agent-repo",
   "crates/agent-providers",
   "crates/agent-core",
+  "crates/agent-tui",
   "crates/agent-cli",
   # Frozen: keeps building and passing its gates, gets no new features.
   "desktop/src-tauri",
@@ -44,6 +45,7 @@ agent-tools = { path = "crates/agent-tools" }
 agent-repo = { path = "crates/agent-repo" }
 agent-providers = { path = "crates/agent-providers" }
 agent-core = { path = "crates/agent-core" }
+agent-tui = { path = "crates/agent-tui" }
 
 # --- async / runtime ---
 tokio = { version = "1", features = ["full"] }
@@ -96,6 +98,23 @@ keyring = { version = "3.6", default-features = false }
 # --- misc ---
 uuid = { version = "1", features = ["v4", "serde"] }
 clap = { version = "4", features = ["derive"] }
+
+# --- the terminal UI (agent-tui) ---
+# Held at 0.29 on purpose: 0.30 needs rustc 1.88 and this workspace's floor is
+# 1.77, so a person on a distribution toolchain from last year can still build
+# the binary. crossterm is pinned to the line ratatui 0.29 itself requires — a
+# second copy of it in the tree would mean the event loop and the backend
+# reading and writing two different terminal handles. Its own feature names are
+# the ones 0.28 answers to: `events` for reading a key, `event-stream` for an
+# async iterator (which this crate does not need, because the screen polls the
+# keyboard on a thread of its own), and no `cursor` feature at all — moving the
+# cursor is not optional there.
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.28", default-features = false, features = [
+    "events",
+    "bracketed-paste",
+    "windows",
+] }
 
 # --- native inference (opt-in feature only: it builds the vendored llama.cpp) ---
 # Never a default, because it needs cmake plus a C/C++ toolchain this repo
