@@ -1,0 +1,22 @@
+# Where a report should not go: a security problem is not an issue, and the
+# desktop app's old releases are not the agent's support channel.
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/antontuzov/smollm-studio/blob/master/SECURITY.md
+    about: >
+      Read this first. It says what counts as a vulnerability here — a run that
+      writes outside its sandbox, a secret that reaches a prompt or a record
+      unmasked, an approval mode that asks nobody — and where to send it privately
+      instead of filing it in public.
+  - name: What a run may read, and where it goes
+    url: https://github.com/antontuzov/smollm-studio/blob/master/docs/privacy.md
+    about: >
+      Everything is local by default. This is the honest version of what that means
+      for each provider, including the one that talks to a server you named.
+  - name: Configuration, tools, providers, the screen
+    url: https://github.com/antontuzov/smollm-studio/tree/master/docs
+    about: >
+      agent-config.md, tools.md, providers.md, eval.md, tui.md and the rest are the
+      measured docs. If one of them contradicts the binary, that contradiction is the
+      bug — file it as one.

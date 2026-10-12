@@ -1,5 +1,6 @@
-# Install the `smollm` CLI from this checkout on Windows.
-# Everything is local: no release download, no admin rights, no telemetry.
+# Install both CLIs from this checkout on Windows — `smoll`, the coding agent, and
+# `smollm`, the model CLI. Everything is local: no release download, no admin
+# rights, no telemetry.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -IncludeApp
@@ -22,12 +23,21 @@ Write-Host "==> Building smollm (release)"
 cargo build --release --manifest-path (Join-Path $Root 'Cargo.toml') -p smollm-cli --bin smollm
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
 
+# The feature the release archives carry, for the same reason as install.sh: with
+# no backend this binary can only answer from mock or echo.
+Write-Host "==> Building smoll (release, openai-compatible)"
+cargo build --release --manifest-path (Join-Path $Root 'Cargo.toml') -p agent-cli --bin smoll --features openai-compatible
+if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
+
 $exe = Join-Path $Root 'target\release\smollm.exe'
 if (-not (Test-Path $exe)) { throw "expected build output at $exe" }
+$agentExe = Join-Path $Root 'target\release\smoll.exe'
+if (-not (Test-Path $agentExe)) { throw "expected build output at $agentExe" }
 
 Write-Host "==> Installing to $Prefix"
 New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
 Copy-Item $exe (Join-Path $Prefix 'smollm.exe') -Force
+Copy-Item $agentExe (Join-Path $Prefix 'smoll.exe') -Force
 
 if ($IncludeApp) {
     $bundleDir = Join-Path $Root 'desktop\src-tauri\target\release\bundle'
@@ -49,4 +59,6 @@ if ($userPath -notlike "*$Prefix*") {
 }
 
 & (Join-Path $Prefix 'smollm.exe') --version
+& (Join-Path $Prefix 'smoll.exe') --version
 Write-Host "smollm is installed. Try: smollm hardware; smollm doctor"
+Write-Host "smoll is installed. Try: cd a repository; smoll doctor; smoll tools"

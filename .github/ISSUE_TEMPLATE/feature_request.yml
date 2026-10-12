@@ -1,0 +1,81 @@
+name: Feature request
+description: Something the agent should be able to do that it cannot do today
+title: "[feat] "
+labels: enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Four constraints decide most proposals here, so it saves everyone time to say
+        where yours sits:
+
+        - **Local by default.** Nothing a run reads leaves the machine unless you point a
+          provider at a server and name it in config. A feature that needs a cloud API to
+          work is a provider adapter, not a feature.
+        - **Every tool is paid for twice.** A tool costs its definition on every step of
+          every run — the default list is 24 tools at 2641 prompt tokens — and `registry.rs`
+          fails the test suite if that block passes 2800. So a new tool has to say which
+          existing one it replaces, or argue for a bigger window.
+        - **One default set, no modes.** There is no `toolset = lean|full` switch and the
+          answer to a cost problem is not allowed to be a new knob; the list grows, and the
+          cost is printed where a person can see it.
+        - **The desktop app is frozen.** It keeps passing its gates and gets no new features
+          while the agent is being built.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: |
+        The task, and what the run did instead. A feature request that starts as "I want a
+        `--foo` flag" is much harder to place than one that starts as "I cannot make it stop
+        touching generated files".
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you tried with what is already there
+      description: |
+        Config keys, approval modes, sandbox settings, an existing tool, a `denylist` entry,
+        `smoll tools` output. If a combination of what exists nearly does it, that is the most
+        useful thing you can say.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it belongs
+      description: Pick the one you think it is; a wrong guess costs nothing.
+      options:
+        - agent-core — the loop, its limits, approvals, the plan
+        - agent-tools — a tool, or a tool's gate
+        - agent-sandbox — what a run may touch, path escapes, denylists
+        - agent-providers — a provider, or what one can be asked
+        - agent-config — a key, and what it validates
+        - agent-repo — how the repository is read and ranked
+        - agent-tui — the screen
+        - agent-cli — a command a person types
+        - the eval harness or the docs
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: What must not become possible
+      description: |
+        Every capability here has a refusal attached to it. If your feature lets a run write,
+        delete, or run something, say what should still be refused, and what approval mode the
+        question belongs to.
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Before you post
+      options:
+        - label: I checked docs/tools.md for a tool that already does this
+          required: true
+        - label: I am not asking for a new feature in the frozen desktop app
+          required: true
+        - label: I would test it, or use it, if it landed
+          required: false

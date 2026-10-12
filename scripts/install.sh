@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Install the `smollm` CLI (and, when a bundle exists, the desktop app) from this
-# checkout. Everything is local: no release download, no sudo, no telemetry.
+# Install both CLIs from this checkout — `smoll`, the coding agent, and `smollm`,
+# the model CLI — and, when a bundle exists, the desktop app. Everything is
+# local: no release download, no sudo, no telemetry.
 #
-#   curl-ish usage:  ./scripts/install.sh            # CLI into ~/.local/bin
-#                    ./scripts/install.sh --app      # also copy the .app to /Applications
-#                    ./scripts/install.sh --prefix /usr/local
+#   ./scripts/install.sh            # both CLIs into ~/.local/bin
+#   ./scripts/install.sh --app      # also copy the .app to /Applications
+#   ./scripts/install.sh --prefix /usr/local
 set -euo pipefail
 
 PREFIX="${HOME}/.local"
@@ -33,10 +34,20 @@ command -v cargo >/dev/null 2>&1 || {
 echo "==> Building smollm (release)"
 cargo build --release --manifest-path "${ROOT}/Cargo.toml" -p smollm-cli --bin smollm
 
+# `openai-compatible` is the one feature this ships with everywhere, and the one
+# the release archives carry: a build without it answers from `mock` or `echo`
+# only, and an agent running a scripted model in place of yours is a worse
+# surprise at install time than a slower build. Weights still need a `llama-cpp`
+# build, which this script does not pretend to promise — see docs/release.md.
+echo "==> Building smoll (release, openai-compatible)"
+cargo build --release --manifest-path "${ROOT}/Cargo.toml" -p agent-cli --bin smoll \
+  --features openai-compatible
+
 echo "==> Installing to ${BIN}"
 mkdir -p "${BIN}"
 # Install rather than move: the checkout keeps its build tree.
 install -m 0755 "${ROOT}/target/release/smollm" "${BIN}/smollm"
+install -m 0755 "${ROOT}/target/release/smoll" "${BIN}/smoll"
 
 if [[ "${WITH_APP}" -eq 1 ]]; then
   APP="$(find "${ROOT}/desktop/src-tauri/target/release/bundle/macos" -maxdepth 1 -name '*.app' 2>/dev/null | head -1 || true)"
@@ -58,4 +69,6 @@ esac
 
 echo
 "${BIN}/smollm" --version
+"${BIN}/smoll" --version
 echo "smollm is installed. Try: smollm hardware && smollm doctor"
+echo "smoll is installed. Try: cd a repository && smoll doctor && smoll tools"

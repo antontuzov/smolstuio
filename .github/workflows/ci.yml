@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The default branch here is `master`. A filter that names a branch the
+    # repository does not have is a gate that silently never runs on the thing it
+    # is supposed to protect, so change this only together with the branch.
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -140,7 +143,10 @@ jobs:
         run: pnpm build
 
   # The default `mock` engine must never need a GPU, a C++ toolchain or the
-  # network: this job is the guard against accidentally making it so.
+  # network: this job is the guard against accidentally making it so. Both
+  # binaries are smoke-tested — `smollm` is the model layer's CLI, `smoll` is the
+  # agent's — because only the second one is being built now, and a release that
+  # ships a binary nobody ran is how a stale job survives.
   cli-smoke:
     name: CLI smoke
     runs-on: ubuntu-latest
@@ -160,3 +166,21 @@ jobs:
 
       - name: serve snippets
         run: cargo run -q -p smollm-cli --bin smollm -- serve --examples-only
+
+      # No features: the agent binary with the scripted providers, which is the
+      # build a person gets from a plain `cargo install --path crates/agent-cli`.
+      - name: Build the agent CLI
+        run: cargo build -p agent-cli --bin smoll
+
+      # Three read-only commands against the checkout itself. Each one has to
+      # answer from the repository it is standing in, so a broken config loader, a
+      # registry that no longer lists its tools, or a panic on the way to printing
+      # either is caught here rather than in someone's first run.
+      - name: smoll --version
+        run: ./target/debug/smoll --version
+
+      - name: smoll doctor
+        run: ./target/debug/smoll doctor
+
+      - name: smoll tools
+        run: ./target/debug/smoll tools

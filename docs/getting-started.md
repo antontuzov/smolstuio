@@ -15,14 +15,17 @@ Three things to know before you start:
 
 ### From a release
 
-| | |
-| --- | --- |
-| macOS (Apple Silicon) | `SmolLLM_0.1.0_aarch64.dmg` |
-| macOS (Intel) | `SmolLLM_0.1.0_x64.dmg` |
-| Windows | `SmolLLM_0.1.0_x64-setup.exe` or `.msi` |
+No release has been published yet: this repository has no tags, and nothing to
+download. What a `v*` tag will build is in
+[release.md](release.md) — a `.dmg` and a `.app` from the mac runner (Apple
+Silicon: the workflow has no Intel runner, so no `x64.dmg` exists until one is
+added), an `.msi` and a `setup.exe` from the Windows runner, and a `smoll`
+archive per platform, each unsigned. Until then, build from source below; the
+two routes give the same binaries.
 
-Drag the app into `/Applications` on macOS. Unsigned builds trigger Gatekeeper
-the first time: right-click → **Open**, or remove the quarantine attribute with
+Drag the app into `/Applications` on macOS once you have it. An unsigned build
+triggers Gatekeeper the first time: right-click → **Open**, or remove the
+quarantine attribute with
 `xattr -dr com.apple.quarantine /Applications/SmolLLM\ Studio.app` once you are
 comfortable doing so.
 
@@ -43,10 +46,25 @@ You need Rust 1.77+ and the Tauri prerequisites for your OS
 
 ### Command line only
 
+Two binaries, and the one this repository is now about is the second:
+
 ```bash
-cargo install --path crates/smollm-cli    # installs the `smollm` binary
+cargo install --path crates/smollm-cli                # the `smollm` model CLI
 smollm doctor
+
+cargo install --path crates/agent-cli --bin smoll \
+  --features openai-compatible                        # the `smoll` coding agent
+smoll doctor
 ```
+
+`--features openai-compatible` is not decoration: `smoll`'s default build has no
+backend at all, so without it the only things that can answer a run are `mock`
+and `echo`. It is the feature every release archive carries. Loading weights from
+a GGUF needs `--features llama-cpp`, which compiles llama.cpp and wants cmake and
+a C++ toolchain — see [providers.md](providers.md).
+
+`./scripts/install.sh` (or `scripts\install.ps1` on Windows) builds and installs
+both at once, into `~/.local/bin`, from the checkout you are standing in.
 
 ## First run
 
@@ -123,6 +141,17 @@ speed. The page says so on every result.
 
 ## Next steps
 
+The agent's own pages, if you came for `smoll` rather than the window:
+
+- [agent-config.md](agent-config.md) — the `smoll.toml` the loop runs on, and its overrides
+- [tools.md](tools.md) — the 24 tools, their permission classes and their prompt cost
+- [providers.md](providers.md) — what can answer a run, and which build each one needs
+- [tui.md](tui.md) — the keys, panes and themes of `smoll chat`
+- [eval.md](eval.md) — the safety promises, re-run on demand by `smoll eval`
+
+And for both binaries:
+
+- [release.md](release.md) — how to cut a release, and what is and is not in one
 - [models.md](models.md) — the catalog, quantisations, adding your own GGUF files
 - [hardware.md](hardware.md) — how the RAM-fit advice is computed
 - [api.md](api.md) — the HTTP API and the Tauri command surface

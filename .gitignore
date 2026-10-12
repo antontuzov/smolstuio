@@ -6,3 +6,6 @@ node_modules
 .env
 desktop/src-tauri/gen/schemas
 assets/screenshots/*.png
+# what a run leaves wherever `smoll` was pointed: the audit log, session records,
+# the memory file. never source, and never something `git add .` should pick up
+.smoll/

@@ -169,9 +169,18 @@ library is a contained change:
 
 ## Quickstart
 
-1. Download the latest release:
-   - macOS: `SmolLLM_0.1.0_aarch64.dmg`
-   - Windows: `SmolLLM_0.1.0_x64-setup.exe` (or the `.msi`)
+1. There is no release to download yet — this repository has no tags, and the
+   workflow that would publish one has never run. Until the first tag is cut
+   (see [docs/release.md](docs/release.md)), build it from a checkout:
+
+   ```bash
+   git clone https://github.com/antontuzov/smollm-studio
+   cd smollm-studio/desktop && corepack enable && pnpm install && pnpm tauri build
+   ```
+
+   That gives a `.dmg` and an `.app` on an Apple Silicon mac, or an `.msi` and a
+   `setup.exe` on Windows. They are unsigned local builds, so the first launch
+   needs right-click → **Open** on macOS.
 2. Open it. The first launch answers three questions before anything else: what
    stays on this machine, what this machine can actually run, and which small
    model to fetch first. Close it as soon as you have read it — that counts as
@@ -188,7 +197,23 @@ see afterwards. If the app was installed from a plain release build, that
 conversation is simulated — read "Inference: real, but opt-in" above before you
 trust an answer.
 
-Prefer the terminal?
+Prefer the terminal? The agent works in any repository, and needs no model
+download to be tried out — its default provider is `mock`, which answers with a
+script so you can see the loop before you give it weights.
+
+```bash
+cd your-repository
+smoll init                          # write a starter smoll.toml, then read it
+smoll doctor                        # what this machine, repo and config add up to
+smoll tools                         # the 24 it offers, and what they cost the prompt
+smoll task "add a --verbose flag to the cli"
+smoll chat                          # the same loop, drawn, with approvals on screen
+smoll review                        # the last run: its plan, its files, how to undo it
+smoll rollback --id <session-id>    # put back exactly what that run wrote
+smoll eval                          # the safety promises, re-run against the real loop
+```
+
+The model layer it builds on has its own binary:
 
 ```bash
 smollm doctor                       # what can this machine run?
@@ -203,14 +228,19 @@ smollm run SmolLM2-360M-Instruct-Q4_K_M.gguf --seed 123 --stop "###" --threads 4
 smollm serve --port 8123            # OpenAI-compatible API on loopback
 ```
 
-If you would rather have that `smollm` on your PATH than run it out of
-`target/`, the install scripts build from this checkout and drop the binary in
-your user bin directory — no sudo, no download:
+If you would rather have those on your PATH than run them out of `target/`, the
+install scripts build both from this checkout and drop them in your user bin
+directory — no sudo, no download:
 
 ```bash
-./scripts/install.sh                  # macOS / Linux -> ~/.local/bin/smollm
+./scripts/install.sh                  # macOS / Linux -> ~/.local/bin/{smoll,smollm}
 powershell -File scripts/install.ps1  # Windows -> %LOCALAPPDATA%\Programs\smollm
 ```
+
+`smoll` built by that script carries `openai-compatible`, so a server on your own
+machine can answer a run. It does not load weights; that is a
+`--features llama-cpp` build. The same split, and what a release archive would
+contain, is in [docs/release.md](docs/release.md).
 
 ## Development setup
 
@@ -409,7 +439,7 @@ crates/
   agent-cli         the `smoll` binary
 desktop/
   src/              React + TypeScript UI (8 pages)
-  src-tauri/        41 commands, event bridge, tray, bundling
+  src-tauri/        44 commands, event bridge, tray, bundling
 ```
 
 The `agent-*` crates are the coding agent being built on top of the model layer,
@@ -421,7 +451,10 @@ it may touch, where its arguments come from, what it costs the prompt — in
 [docs/tools.md](docs/tools.md). The command that re-checks those claims instead
 of restating them, and the timings of the parts of a turn that are ours, are in
 [docs/eval.md](docs/eval.md), and the keys, panes and themes of the drawn version
-of a run are in [docs/tui.md](docs/tui.md).
+of a run are in [docs/tui.md](docs/tui.md). What a `v*` tag actually builds, which
+parts of that have been run by a person on a machine and which only a runner can
+run, and how to cut the first release, are in
+[docs/release.md](docs/release.md).
 
 ## Roadmap
 

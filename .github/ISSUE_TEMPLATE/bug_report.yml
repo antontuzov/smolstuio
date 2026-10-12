@@ -1,0 +1,93 @@
+name: Bug report
+description: smoll did something it should not have, or did not do something it promised
+title: "[bug] "
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A coding agent has one bug report that matters more than the rest: **what it
+        touched**. Every run writes `.smoll/sessions/<id>.json`, and `smoll review --id <id>`
+        prints it — the transcript, the token count, and the journal of what each write
+        replaced. Please paste that rather than a screenshot, so the sequence is readable.
+
+        Check it before you post. Values that look like secrets were masked before the
+        record was written, but file paths, branch names and the contents of your own
+        repository are in there, and this tracker is public.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The task you gave it, and what the run did instead.
+      placeholder: |
+        Asked it to rename one helper. It wrote four files, two of them outside `src/`,
+        and the plan pane still said it was on step 1 when it finished.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: |
+        Which promise this breaks, if you can name one — the approval mode that should have
+        asked, the sandbox rule that should have refused, the tool that should not have been
+        offered at all.
+    validations:
+      required: true
+  - type: textarea
+    id: record
+    attributes:
+      label: The run's own record
+      description: Output of `smoll review` (the newest run, or `--id <id>` for a specific one).
+      render: console
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`smoll doctor` and `smoll --version`"
+      description: |
+        This machine, this repository and this config as the binary reads them. Say how you got
+        the binary too: `smoll --version` prints a version, not its feature set, so a source build
+        should quote the `cargo build -p agent-cli --features …` command that made it and an
+        archive's features are the ones named in `docs/release.md`. A binary built without
+        `openai-compatible` cannot make an HTTP request, and that is a different bug than one that
+        tried and failed.
+      render: console
+    validations:
+      required: true
+  - type: dropdown
+    id: command
+    attributes:
+      label: Which command
+      options:
+        - smoll task
+        - smoll chat
+        - smoll eval
+        - smoll review / rollback
+        - smoll tools / config / doctor / init
+        - the desktop app (frozen, but still gated)
+        - build or CI
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Smallest way to reproduce it
+      description: |
+        A directory, a `smoll.toml` and a task line. The eval harness
+        (`crates/agent-cli/src/eval.rs`, run by `smoll eval`) is built from exactly this shape,
+        so a report that fits it usually ends up as a fixture.
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Before you post
+      options:
+        - label: I pasted no secret, token or credential-shaped value
+          required: true
+        - label: I read SECURITY.md, including what this project does and does not treat as a vulnerability
+          required: true
+        - label: Nothing here was sent to a remote service by me or by the run
+          required: true

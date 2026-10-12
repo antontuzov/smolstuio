@@ -1,0 +1,72 @@
+# Dependabot, on a schedule nobody has to remember.
+#
+# Three ecosystems, because this repository has three kinds of dependency with
+# different failure modes: Rust crates that can break the 1.77 floor, a frozen
+# desktop app whose frontend still needs security patches, and the Actions that
+# run the gates.
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 6
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+    # Two pins are decisions rather than accidents, and a bump that looks like
+    # housekeeping breaks one of them. Both are commented where they are declared:
+    # `[workspace.dependencies]` in the root Cargo.toml.
+    ignore:
+      - dependency-name: "ratatui"
+        # 0.30 requires rustc 1.88. This workspace's floor is 1.77, and a screen
+        # that cannot build on last year's distribution is not usable.
+        versions: [">= 0.30"]
+      - dependency-name: "crossterm"
+        # A second copy of crossterm in the tree means the event loop and ratatui
+        # hold two handles on one terminal. It has to move with ratatui, not ahead
+        # of it.
+        versions: [">= 0.29"]
+    groups:
+      # Patch bumps arrive as one PR, since each of them is a rebuild and a rerun
+      # of the same gates. A minor or major bump stays its own PR, because
+      # that is the one that can move the MSRV, the prompt-cost bound, or what a
+      # provider is able to answer.
+      rust-patches:
+        patterns: ["*"]
+        update-types: ["version-update:semver-patch"]
+
+  # The desktop app is frozen for features, not for security: its frontend keeps
+  # taking patches so a released bundle does not rot.
+  - package-ecosystem: "npm"
+    directory: "/desktop"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 4
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+    groups:
+      frontend-patches:
+        patterns: ["*"]
+        update-types: ["version-update:semver-patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "07:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - "dependencies"

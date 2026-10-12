@@ -1,6 +1,7 @@
 name: Release
 
-# Builds signed-or-unsigned desktop bundles for macOS and Windows.
+# Builds the desktop app's signed-or-unsigned bundles for macOS and Windows, and
+# the `smoll` agent binary for the three platforms a runner gives natively.
 # Runs on a `v*` tag (publishing a GitHub Release) and on demand (artifacts only).
 
 on:
@@ -66,23 +67,82 @@ jobs:
             desktop/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-  # The CLI is pure Rust, so one job covers every platform with `--target`.
+  # The agent's own binary, which is what a person installing this repository today
+  # is actually after. Three native runners rather than one cross-compiled job:
+  # the default `smoll` build is pure Rust and could be crossed from any of them,
+  # but the one this ships with — `openai-compatible` — pulls `rustls`/`ring`, whose
+  # C wants the platform's own toolchain. A binary that has only ever been built on
+  # a machine shipping something else is a claim about a build, not a build.
   cli:
-    name: CLI binaries
-    runs-on: ubuntu-latest
+    name: smoll (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+            binary: smoll
+          - os: macos-latest
+            label: macos-aarch64
+            binary: smoll
+          - os: windows-latest
+            label: windows-x86_64
+            binary: smoll.exe
     steps:
       - uses: actions/checkout@v4
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build smollm
-        run: cargo build --release -p smollm-cli --bin smollm
+      # `--locked`: a release is built from the lockfile that passed the CI
+      # gates, not from whatever resolution today's index happens to give.
+      - name: Build
+        run: cargo build --release --locked -p agent-cli --bin smoll --features openai-compatible
 
-      - name: Upload CLI
+      - name: Package
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          name="smoll-${GITHUB_REF_NAME}-${{ matrix.label }}"
+          mkdir -p "$name"
+          cp "target/release/${{ matrix.binary }}" "$name/"
+          cp LICENSE NOTICE README.md "$name/"
+          tar -czf "$name.tar.gz" "$name"
+          # Both tools print `<hash>  <file>`, so the `.sha256` a person checks with
+          # either one is the same file. macOS ships `shasum` and a runner without
+          # coreutils has nothing else, so the fallback is not a nicety.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          else
+            echo "no sha256 tool on this runner" >&2
+            exit 1
+          fi
+          cat "$name.tar.gz.sha256"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "smoll-${env:GITHUB_REF_NAME}-${{ matrix.label }}"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item "target/release/${{ matrix.binary }}" -Destination $name
+          Copy-Item LICENSE,NOTICE,README.md -Destination $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() |
+            Set-Content -Encoding ascii "$name.zip.sha256"
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: smollm-cli-linux-x86_64
-          path: target/release/smollm
+          name: smoll-${{ matrix.label }}
+          path: |
+            smoll-*-${{ matrix.label }}.tar.gz
+            smoll-*-${{ matrix.label }}.tar.gz.sha256
+            smoll-*-${{ matrix.label }}.zip
+            smoll-*-${{ matrix.label }}.zip.sha256
+          if-no-files-found: error
 
   release:
     name: GitHub Release
@@ -97,6 +157,11 @@ jobs:
           pattern: "smollm-studio-*"
           merge-multiple: true
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "smoll-*"
+          merge-multiple: true
+
       - name: Notes
         id: notes
         run: |
@@ -104,12 +169,47 @@ jobs:
             echo "body<<EOF"
             echo "See [CHANGELOG.md](./CHANGELOG.md) for what is in ${{ github.ref_name }}."
             echo ""
-            echo "Bundles here are **unsigned local builds**. Downloads from an unsigned"
-            echo "publisher need a right-click > Open on macOS the first time."
+            echo "## \`smoll\` — the coding agent"
             echo ""
-            echo "Before you install: real inference is still an adapter seam in this"
-            echo "version, so chat replies are simulated. Read the README section"
-            echo "\"what is real, and what is a seam\"."
+            echo "One binary, one command: \`smoll task \"…\"\` runs the loop against"
+            echo "your repository, \`smoll chat\` draws the same run on a screen, and every"
+            echo "run leaves a record in \`.smoll/sessions/\` that \`smoll review\` shows and"
+            echo "\`smoll rollback\` can undo. Everything is local by default; nothing a run"
+            echo "reads leaves the machine unless you point a provider at a server and name"
+            echo "it in \`smoll.toml\`."
+            echo ""
+            echo "These builds carry the \`openai-compatible\` provider, so a server already"
+            echo "running on your machine (\`llama-server\`, LM Studio, Ollama's OpenAI"
+            echo "endpoint, or any other that speaks the same wire) can answer a run. They"
+            echo "do **not** load weights themselves: the \`gguf\` and \`llama-cpp\` providers"
+            echo "need a build with that feature and a C++ toolchain, because compiling"
+            echo "llama.cpp is not something a downloaded archive can promise. See"
+            echo "[docs/providers.md](./docs/providers.md)."
+            echo ""
+            echo "No model weights are in any archive here, and none is downloaded by"
+            echo "installing them."
+            echo ""
+            echo "## Desktop bundles"
+            echo ""
+            echo "The Tauri app is frozen while the agent is built: it keeps passing its"
+            echo "gates and gets no new features. Bundles here are **unsigned local"
+            echo "builds**. Downloads from an unsigned publisher need a right-click > Open"
+            echo "on macOS the first time."
+            echo ""
+            echo "## Checking an archive"
+            echo ""
+            echo "Each one ships a \`.sha256\` beside it:"
+            echo ""
+            echo '```console'
+            echo "$ sha256sum -c smoll-${GITHUB_REF_NAME}-linux-x86_64.tar.gz.sha256"
+            echo '```'
+            echo ""
+            echo "where \`sha256sum\` exists; on a mac without coreutils the same file"
+            echo "works with \`shasum -a 256 -c\`, and PowerShell has \`Get-FileHash\`."
+            echo ""
+            echo "The workflow that made these ran for the first time on this tag. What was"
+            echo "verified before pushing it, and by which command, is in"
+            echo "[docs/release.md](./docs/release.md)."
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -120,6 +220,9 @@ jobs:
             **/*.app
             **/*.msi
             **/*.exe
-            **/smollm
+            **/smoll-*.tar.gz
+            **/smoll-*.tar.gz.sha256
+            **/smoll-*.zip
+            **/smoll-*.zip.sha256
           body: ${{ steps.notes.outputs.body }}
           fail_on_unmatched_files: true

@@ -27,12 +27,13 @@ pnpm tauri dev                       # native window + Vite on :1420
 error state. Useful for styling, useless for data — the Tauri IPC bridge does
 not exist there.
 
-The CLI is a first-class twin of the app, so most work can be verified without
-a window at all:
+Both CLIs are first-class, so most work can be verified without a window at all:
 
 ```bash
 cargo run -p smollm-cli --bin smollm -- hardware
 cargo run -p smollm-cli --bin smollm -- models list
+cargo run -p agent-cli --bin smoll -- doctor
+cargo run -p agent-cli --bin smoll -- tools
 ```
 
 ## Run the checks
@@ -42,10 +43,36 @@ CI enforces exactly these. Run them before you open a pull request — a green
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --all
+cargo clippy -p agent-providers --all-targets --features gguf,openai-compatible -- -D warnings
+cargo test -p agent-providers --features gguf,openai-compatible
 cd desktop && pnpm typecheck && pnpm lint && pnpm build
 ```
+
+The two `agent-providers` lines are there because `--workspace` above builds that
+crate with its default features, and its GGUF and HTTP adapters are behind
+flags: without them, an adapter that only ever compiles in a feature nobody runs
+is a change nobody checked. They build against the engine layer's mock, so they
+need no C++ toolchain.
+
+The `llama-cpp` set needs cmake and a C++ toolchain, so it is a separate CI job
+on Linux and macOS rather than one of the six above. Run it yourself if you
+touched the engine, the desktop shell's linking, or the gguf adapter — these are
+the commands that job runs, one package at a time:
+
+```bash
+cargo clippy -p smollm-engine --all-targets --features llama-cpp -- -D warnings
+cargo clippy -p smollm-cli --all-targets --features llama-cpp -- -D warnings
+cargo clippy -p agent-providers --all-targets --features llama-cpp -- -D warnings
+cargo clippy -p agent-cli --all-targets --features llama-cpp -- -D warnings
+cargo clippy -p smollm-studio-desktop --all-targets --features llama-cpp -- -D warnings
+cargo test -p smollm-engine --features llama-cpp
+cargo test -p agent-providers --features llama-cpp
+```
+
+The desktop-shell line is the one CI only runs on macOS: a plain Ubuntu runner
+has no Tauri system libraries. Everything else above runs on Linux and macOS.
 
 Two commands are worth running when you touched the loop, the policy or the
 prompt. The first is already covered by the gates above; the second is not, and
@@ -111,6 +138,16 @@ These are not style preferences; they are the product's guarantees.
 - Describe what you verified, and how. For UI changes, say which theme you
   looked at — light is the default and it is easy to only ever test dark.
 
+## Releases
+
+Cutting one is [docs/release.md](docs/release.md): which three files hold the
+version number, why the lockfile has to be regenerated before the tag or the
+release build refuses to run, what each archive contains and which feature it
+left out, and which parts of the pipeline have been run by a person on a real
+machine rather than only written down. Pushing a tag is the step that makes a
+release public, so it is a human decision and never something a tool does at the
+end of a milestone.
+
 ## Where to look first
 
 - `crates/smollm-core` — the shared vocabulary: `AppError` and its codes,
@@ -119,7 +156,7 @@ These are not style preferences; they are the product's guarantees.
   Start here for any inference work.
 - `crates/smollm-models` — catalog schema and the download manager.
 - `desktop/src-tauri/src/commands.rs` — the command surface;
-  `docs/api.md` lists all 30 with their events.
+  `docs/api.md` lists all 44 with their events.
 - `desktop/src/lib/api.ts` — the single place the frontend crosses into Rust.
   Keep the TS types mirroring the Rust structs.
 
