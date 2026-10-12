@@ -224,6 +224,7 @@ $ smoll config          # the resolved configuration, as TOML, with the files it
 $ smoll config --json   # the same thing for a script
 $ smoll doctor          # this machine, this repository and this config, read and reported
 $ smoll tools           # what a run may be given, and the prompt tokens that costs on every step
+$ smoll eval            # the promises re-run against the real loop, and what a first turn costs
 ```
 
 Keys are snake_case throughout; the values of `approval_mode` and `sandbox` are

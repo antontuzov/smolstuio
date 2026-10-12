@@ -35,7 +35,7 @@ fn help_lists_the_subcommands_and_the_flags_a_ci_job_needs() {
     let output = smoll(dir.path(), &["--help"]);
     let help = text(&output);
     for command in [
-        "init", "doctor", "config", "tools", "task", "review", "rollback",
+        "init", "doctor", "config", "tools", "task", "review", "rollback", "eval",
     ] {
         assert!(
             help.contains(command),
@@ -602,4 +602,105 @@ fn running_with_no_subcommand_is_a_usage_error() {
         .expect("the binary runs");
     assert_eq!(output.status.code(), Some(2));
     assert!(text(&output).contains("--help"), "{}", text(&output));
+}
+
+/// `smoll eval` reports on itself as it runs, so a CI job can read the same
+/// numbers a person does. The JSON is what a script parses.
+fn eval_report(dir: &Path) -> serde_json::Value {
+    let output = smoll(dir, &["eval", "--json"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    serde_json::from_slice(&output.stdout).expect("`smoll eval --json` prints one JSON report")
+}
+
+#[test]
+fn eval_keeps_every_promise_it_prints() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let report = eval_report(dir.path());
+    let fixtures = report["fixtures"].as_array().expect("a list");
+    assert!(
+        fixtures.len() >= 8,
+        "the harness is supposed to cover the safety promises, found {}",
+        fixtures.len()
+    );
+    assert_eq!(report["failed"].as_u64(), Some(0), "{report}");
+    assert_eq!(
+        report["passed"].as_u64(),
+        Some(fixtures.len() as u64),
+        "a fixture that failed is not counted as passed"
+    );
+    for fixture in fixtures {
+        assert!(
+            fixture["passed"].as_bool().unwrap_or(false),
+            "{} failed: {}",
+            fixture["name"],
+            fixture["problems"]
+        );
+    }
+    // The command that prices the tool list agrees with the registry that
+    // charges for it, rather than with a number copied into a test.
+    let expected = agent_tools::Registry::with_defaults().token_cost();
+    assert_eq!(report["listTokens"].as_u64(), Some(expected as u64));
+    assert_eq!(
+        report["toolsOffered"].as_u64(),
+        Some(agent_tools::Registry::with_defaults().len() as u64)
+    );
+}
+
+#[test]
+fn eval_says_in_every_run_that_no_model_answered() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let report = eval_report(dir.path());
+    let measures = report["measures"].as_str().expect("a scope line");
+    for phrase in ["not any model", "real weights", "capability"] {
+        assert!(
+            measures.contains(phrase),
+            "the scope line omits {phrase}: {measures}"
+        );
+    }
+
+    let printed = smoll(dir.path(), &["eval"]);
+    let shown = text(&printed);
+    assert_eq!(printed.status.code(), Some(0));
+    assert!(
+        shown.contains("No model was run to make this table"),
+        "{shown}"
+    );
+
+    let rows = report["cost"].as_array().expect("a cost table");
+    let native = rows
+        .iter()
+        .find(|row| row["window"] == serde_json::json!(4096) && row["toolBlock"] == "native")
+        .expect("a native row at the window a 4B model is configured with");
+    assert_eq!(native["repositoryMapInFirstTurn"], serde_json::json!(true));
+    assert_eq!(
+        native["fileBodiesInFirstTurn"],
+        serde_json::json!(true),
+        "at 4096 the loop is supposed to hand the model the files, not only their names"
+    );
+    let prose = rows
+        .iter()
+        .find(|row| row["window"] == serde_json::json!(4096) && row["toolBlock"] == "prose")
+        .expect("a prose row at the same window");
+    assert!(
+        prose["firstTurnTokens"].as_u64() < native["firstTurnTokens"].as_u64(),
+        "a prose block is asked for less than a native one: {prose} vs {native}"
+    );
+}
+
+#[test]
+fn eval_leaves_the_workspace_it_was_called_from_alone() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    eval_report(dir.path());
+    // Every fixture builds its repository somewhere else, so nothing lands
+    // here — not a session file, not a `.smoll` directory, not a notes.md.
+    let left = std::fs::read_dir(dir.path().join("home"))
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(left, 0, "`smoll eval` wrote into HOME");
+    for name in [".smoll", "notes.md", "src"] {
+        assert!(
+            !dir.path().join(name).exists(),
+            "`smoll eval` left {name} in the workspace it was run in"
+        );
+    }
 }

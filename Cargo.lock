@@ -20,6 +20,7 @@ dependencies = [
  "agent-tools",
  "async-trait",
  "clap",
+ "serde",
  "serde_json",
  "smollm-core",
  "smollm-hardware",

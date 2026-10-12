@@ -47,6 +47,21 @@ cargo test --all
 cd desktop && pnpm typecheck && pnpm lint && pnpm build
 ```
 
+Two commands are worth running when you touched the loop, the policy or the
+prompt. The first is already covered by the gates above; the second is not, and
+is only yours to read:
+
+```console
+$ smoll eval                  # the safety promises, re-run against the real loop
+$ cargo bench -p agent-repo   # and -p agent-tools, -p agent-sandbox for timings
+```
+
+`smoll eval` is asserted by the CLI test suite, so a promise it reports broken
+fails `cargo test --all`. The benches are deliberately not: they print what they
+measured and assert nothing, because a stored time baseline goes stale on the
+next machine and there is no number here to keep in step. See
+[docs/eval.md](docs/eval.md).
+
 Clippy is configured to fail on warnings, and `lint` runs with
 `--max-warnings=0`. If a lint genuinely needs suppressing, use a scoped
 `#[allow]`/`eslint-disable` with a one-line reason, never a blanket ignore.

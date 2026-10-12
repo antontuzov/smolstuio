@@ -16,6 +16,7 @@
 //! and `smoll rollback` undoes the writes it journals. That is what lets a
 //! person run an agent, close the terminal, and still take the change back.
 
+mod eval;
 mod terminal;
 
 use std::path::{Path, PathBuf};
@@ -111,6 +112,12 @@ enum Commands {
         #[arg(long, value_name = "ID")]
         id: Option<String>,
     },
+    /// Run the fixtures that state what this loop promises, and price a first turn
+    ///
+    /// Every fixture drives the real loop against a scripted answer in a
+    /// throwaway workspace, so what it proves is the loop and its limits — not
+    /// any model. No weights are loaded and nothing is downloaded.
+    Eval,
 }
 
 #[tokio::main]
@@ -135,6 +142,7 @@ async fn main() -> ExitCode {
         }) => cmd_task(&cwd, cli.json, &prompt, yes, dry_run, approval_mode).await,
         Some(Commands::Review { id }) => cmd_review(&cwd, cli.json, id.as_deref()),
         Some(Commands::Rollback { id }) => cmd_rollback(&cwd, cli.json, id.as_deref()),
+        Some(Commands::Eval) => cmd_eval(cli.json).await,
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
@@ -848,6 +856,26 @@ fn cmd_rollback(cwd: &Path, json: bool, id: Option<&str>) -> Result<(), Failure>
             files.len(),
             stored.session.id
         );
+    }
+    Ok(())
+}
+
+/// Run the fixtures. They take under a second, need no model and write nothing
+/// outside a throwaway workspace, which is the point: a CI job can ask whether
+/// the loop still keeps the promises the documentation makes.
+async fn cmd_eval(json: bool) -> Result<(), Failure> {
+    let report = eval::run_all().await;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|source| Failure::usage(format!("cannot render the report: {source}")))?
+        );
+    } else {
+        eval::print(&report);
+    }
+    if report.failed_any() {
+        return Err(Failure::exit(1));
     }
     Ok(())
 }

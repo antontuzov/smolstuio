@@ -92,7 +92,12 @@ warning naming both numbers, when it asks for more than the host has.
   back and `smoll rollback` puts the files the run wrote the way they were.
   `smoll doctor` answers what this machine, repository and config add up to, and
   `smoll tools` lists what a run can be given and what offering it costs in
-  prompt tokens. Every command takes `-C/--cwd` and `--json`, and the exit code
+  prompt tokens. `smoll eval` runs the promises the loop makes — that a refusal
+  writes nothing, a barred command never starts, a secret is masked before the
+  model sees it — against the real loop in throwaway workspaces, with scripted
+  answers in place of a model, and prices a first turn while it is at it; see
+  [docs/eval.md](docs/eval.md). Every command takes `-C/--cwd` and `--json`, and
+  the exit code
   distinguishes a task that did not work (1) from one it should not have been
   asked to do (2). The twenty-four default tools are `read_file`, `list_dir`,
   `search_files`, `search_text`, `search_symbols`, `git_status`, `git_diff`,
@@ -254,6 +259,13 @@ cargo test --all
 cd desktop && pnpm typecheck && pnpm lint && pnpm build
 ```
 
+`cargo test --all` includes the agent's own harness: the CLI test spawns
+`smoll eval --json`, which re-runs the safety promises against the real loop and
+fails the gate if any of them is broken. Three `cargo bench` targets print
+timings for the parts of a turn that are ours and assert nothing, because a
+stored time baseline goes stale on the next machine. Both are described in
+[docs/eval.md](docs/eval.md).
+
 Bundling needs the Tauri system prerequisites for your OS, described at
 <https://tauri.app/start/prerequisites/>.
 
@@ -403,7 +415,9 @@ gets no new features. Configuration is documented in
 [docs/agent-config.md](docs/agent-config.md), the provider layer in
 [docs/providers.md](docs/providers.md), and every tool a run can be given — what
 it may touch, where its arguments come from, what it costs the prompt — in
-[docs/tools.md](docs/tools.md).
+[docs/tools.md](docs/tools.md). The command that re-checks those claims instead
+of restating them, and the timings of the parts of a turn that are ours, are in
+[docs/eval.md](docs/eval.md).
 
 ## Roadmap
 

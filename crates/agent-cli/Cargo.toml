@@ -30,7 +30,11 @@ smollm-core.workspace = true
 smollm-hardware.workspace = true
 async-trait.workspace = true
 clap.workspace = true
+# `smoll eval` writes its fixture workspaces where nothing it makes can be
+# mistaken for the repository under test.
+serde.workspace = true
 serde_json.workspace = true
+tempfile = "3"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

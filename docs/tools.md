@@ -6,7 +6,10 @@ with the ones your configuration switched off still shown and marked `off`, and
 `smoll tools --json` gives the same rows to a script.
 
 Every number below was measured on this machine against the definitions in
-`crates/agent-tools/src`, not estimated. The cost column is a tool's
+`crates/agent-tools/src`, not estimated. `smoll eval` re-runs the measurement and
+`smoll tools` prints the same totals for the build you are holding, so none of
+them is a figure you have to take on trust — see
+[docs/eval.md](eval.md) for what each command counts. The cost column is a tool's
 `ToolSchema::token_cost` — roughly how many prompt tokens offering that tool
 spends **on every step of every run**. The list is the largest fixed cost a small
 model pays, which is why these tools take as few arguments, and as few words, as
@@ -183,11 +186,16 @@ two-file repository, the first turn puts 3578 tokens in front of a model that is
 handed the tools as a native block and 1751 in front of one that has to be told
 them in prose — one sentence per tool where the block is a schema per tool. Both
 numbers are inside a 4096-token window now, so both models get the rules, the
-whole list, the plan, the repo map **and the bodies of the files in it**. Shortening
+whole list, the plan, the repo map **and the bodies of the files in it**. They
+were counted as bytes on the wire, from a real OpenAI-compatible server, which
+includes the JSON each schema is wrapped in; `smoll eval` prints the same two
+first turns counted the way the loop counts them — 3210 and 1727 — because that
+is the arithmetic it uses to decide whether to ask at all. Shortening
 the definitions is what bought that back; before it the native block cost enough
 at 4096 that the model was given the map and no file contents at all, and had to
 ask for the file it wanted with `read_file`. The window where the list still fits
-and a file body does not is 3584, and
+and a file body does not is 3584, which is a row in `smoll eval`'s table rather
+than a claim in this one, and
 `a_window_too_small_for_the_tool_list_runs_on_the_map_instead_of_bodies` in
 `crates/agent-core/tests/loop_runs.rs` asserts exactly that: the map names the
 files, none of them is handed over, all twenty-four tools are still offered, and

@@ -19,3 +19,11 @@ tracing.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 tempfile = "3"
+
+# `cargo bench -p agent-sandbox`. `harness = false` because the measurement is a
+# std timing loop with its conditions printed, not a comparison against a stored
+# baseline: the point is that anyone can re-measure it, not that a number is kept.
+# Benches are not run by `cargo test --all`.
+[[bench]]
+name = "redaction"
+harness = false
